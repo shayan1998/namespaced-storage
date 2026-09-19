@@ -3,7 +3,7 @@
 > Living document. Every design change goes here first, then into code.
 > Companion: [DECISIONS.md](./DECISIONS.md) (ADR log) · [PREVIEW.md](./PREVIEW.md) (dry run of the output).
 
-**Status:** M0–M2 done (`0.1.0`) · **Target first release:** `1.0.0` · **npm name:** `namespaced-storage` (verified available)
+**Status:** M0–M3 done (`0.1.0`) · **Target first release:** `1.0.0` · **npm name:** `namespaced-storage` (verified available)
 
 ---
 

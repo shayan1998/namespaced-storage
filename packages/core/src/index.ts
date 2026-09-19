@@ -1,11 +1,18 @@
 export { createLocalStorage, createSessionStorage, createMemoryStorage } from './store/create.js';
 
+export { t, type TSchema, type Issue, type ParseResult } from './typing/t.js';
+export type { StandardSchemaV1 } from './typing/standard.js';
+export type { InferEntry, InferSchema, StoreValues, DefaultedKeys } from './typing/infer.js';
+
 export type {
   CorruptPolicy,
   FallbackPolicy,
+  InvalidPolicy,
   StoreOptions,
   SyncNamespacedStore,
   TrySetResult,
+  TypedStoreOptions,
+  TypedSyncNamespacedStore,
 } from './types.js';
 
 export {
@@ -17,6 +24,7 @@ export {
   SerializationError,
   StorageQuotaError,
   StorageUnavailableError,
+  ValidationError,
   type ErrorCode,
 } from './errors.js';
 

@@ -81,6 +81,20 @@ export class DecodeError extends NamespacedStorageError {
   }
 }
 
+export class ValidationError extends NamespacedStorageError {
+  /** Every way the value failed, with the path inside the value that failed. */
+  readonly issues: ReadonlyArray<{ path: (string | number)[]; message: string }>;
+
+  constructor(
+    message: string,
+    issues: ReadonlyArray<{ path: (string | number)[]; message: string }>,
+    context?: ErrorContext,
+  ) {
+    super('VALIDATION', message, context);
+    this.issues = issues;
+  }
+}
+
 /**
  * Browsers disagree about how a full quota is reported. Firefox uses a legacy name, older WebKit
  * uses numeric codes, and Safari private mode throws on the very first write.

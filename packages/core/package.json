@@ -57,10 +57,16 @@
   },
   "size-limit": [
     {
-      "name": "core: namespacing + codecs (M2)",
+      "name": "namespacing + codecs (no schema)",
       "path": "dist/index.js",
       "import": "{ createLocalStorage }",
-      "limit": "3.25 kB"
+      "limit": "4 kB"
+    },
+    {
+      "name": "+ the built-in t.* schemas",
+      "path": "dist/index.js",
+      "import": "{ createLocalStorage, t }",
+      "limit": "5.5 kB"
     }
   ],
   "engines": {

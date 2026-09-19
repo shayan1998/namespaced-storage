@@ -91,6 +91,64 @@ Supported: `Date`, `Map`, `Set`, `BigInt`, `RegExp`, `NaN`, `±Infinity`, and ne
 (which plain JSON drops). Only keys that need it pay for the extra bytes — everything else stays on
 the plain path.
 
+### Typed keys and values
+
+Pass a plain `defaults` object. Types come from it, and so does the fallback when a key has never
+been written:
+
+```ts
+export const basket = createLocalStorage('basket', {
+  defaults: { count: 0, items: [] as BasketItem[], lastOpened: new Date() },
+});
+
+basket.get('count'); // number — not number | undefined, it has a default
+basket.get('lastOpened'); // Date
+basket.set('count', 'ten'); // ✗ compile error
+basket.set('cout', 1); // ✗ compile error — key typo caught
+```
+
+There is no DSL to learn: `defaults` is an ordinary object, and the types are `typeof defaults`.
+Each read returns a **clone**, so mutating what you got back cannot corrupt the fallback.
+
+For keys with no sensible default, or data that must be validated, use `schema`:
+
+```ts
+import { createSessionStorage, t } from 'namespaced-storage';
+
+export const auth = createSessionStorage('auth', {
+  schema: { token: t.string(), scopes: t.array(t.string()).optional() },
+});
+
+auth.get('token'); // string | undefined
+auth.set('token', 42); // ✗ compile error, and would throw ValidationError at runtime
+```
+
+Any [Standard Schema](https://standardschema.dev) validator works instead — Zod 3.24+, Valibot,
+ArkType, Effect Schema — with **no peer dependency** and nothing extra in your bundle if you skip it:
+
+```ts
+schema: {
+  token: z.string().min(10);
+}
+```
+
+`defaults` and `schema` can declare the same key: the schema validates, the default is the
+fallback. A default that contradicts its own schema is rejected at construction.
+
+```ts
+const ui = createLocalStorage('ui', {
+  defaults: { mode: 'light' },
+  schema: { mode: t.enum(['light', 'dark']) },
+});
+ui.get('mode'); // 'light' | 'dark'
+```
+
+Writes always validate and throw `ValidationError`. Reads follow `onInvalid`
+(`'ignore'` by default, falling back to the default value) so stale data never crashes a render.
+
+Built in: `t.string` `t.number` `t.boolean` `t.bigint` `t.date` `t.literal` `t.enum` `t.array`
+`t.object` `t.record` `t.union` `t.unknown`, each with `.optional()` and `.nullable()`.
+
 ### Nested namespaces
 
 ```ts
@@ -152,7 +210,8 @@ createLocalStorage('basket', { onCorrupt: 'throw' }); // fail fast in tests
 
 All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace` and `.key`:
 `StorageQuotaError`, `StorageUnavailableError`, `DecodeError`, `SerializationError`,
-`InvalidNamespaceError`, `InvalidKeyError`, `InvalidOptionsError`.
+`ValidationError` (carries `.issues`), `InvalidNamespaceError`, `InvalidKeyError`,
+`InvalidOptionsError`.
 
 ## Constraints
 
@@ -162,9 +221,9 @@ All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace
 
 ## Roadmap
 
-`0.1.0` is the namespacing core plus full value codecs. Next: typing via a `defaults` object, TTL,
-cross-tab change events, migrations, an ESLint plugin that bans raw storage access, and an
-`nss scan` CLI that generates the "what do we store?" inventory from your source.
+`0.1.0` covers namespacing, value codecs and typing. Next: TTL, cross-tab change events,
+migrations, an ESLint plugin that bans raw storage access, and an `nss scan` CLI that generates the
+"what do we store?" inventory from your source.
 
 ## License
 

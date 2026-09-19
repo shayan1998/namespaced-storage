@@ -224,7 +224,7 @@ scan depends on it. `defineNamespaces` and `$manifest()` are removed from the de
 
 ## ADR-012 — `defaults` is the primary way to declare types; `schema` is the advanced path
 
-**Status:** accepted · **Date:** 2026-09-19 · **Refines:** ADR-007
+**Status:** accepted, with the overlap rule superseded by ADR-015 · **Date:** 2026-09-19 · **Refines:** ADR-007
 
 Requiring `t.number().default(0)` for the simplest possible case means learning a DSL before writing
 one key. Most keys need a type and a fallback, not validation.
@@ -311,13 +311,65 @@ Consequences beyond the original plan:
 
 ---
 
+## ADR-015 — `defaults` and `schema` may declare the same key
+
+**Status:** accepted · **Date:** 2026-09-19 · **Supersedes:** the overlap rule in ADR-012
+
+ADR-012 said a key appearing in both `defaults` and `schema` throws `InvalidOptionsError`, on the
+grounds that two declarations are ambiguous. Implementing M3 showed the opposite: the two options
+answer different questions, so overlapping them is the _natural_ combination and forbidding it
+leaves a real hole — a key could be validated, or defaulted, but never both. `token` needs
+validation without a default; `mode` wants both.
+
+**Accepted:** where a key appears in both, the **schema supplies the type and the validation** and
+the **default supplies the fallback**. The schema wins the static type because it is the more
+precise statement (`t.enum(['light','dark'])` beats `string` inferred from `'light'`).
+
+The ambiguity ADR-012 feared is handled by checking rather than forbidding: at construction, each
+default is run through its own schema, and a contradiction throws `InvalidOptionsError` naming the
+key. `defaults: { count: 'zero' }` with `schema: { count: t.number() }` fails immediately instead
+of at the first read in production.
+
+Two consequences worth stating:
+
+- **A default also covers a validation failure on read.** Data left over from an older shape reads
+  back as the default rather than as `undefined`, which is almost always what the caller wants.
+- **`t.*` needs no `.default()` method**, which keeps the built-in schema builder smaller.
+
+---
+
+## ADR-016 — Writes are validated and always throw; reads follow `onInvalid`
+
+**Status:** accepted · **Date:** 2026-09-19
+
+The plan mentioned `onInvalid` only as a read policy. Validating writes as well turned out to be
+the more valuable half: it is what actually keeps bad data out of storage, and it costs one
+validation pass on a code path that is already doing a `JSON.stringify`.
+
+**Accepted:** `set` validates and throws `ValidationError` (carrying every issue with its path
+inside the value), consistent with ADR-009's "writes throw, reads do not". `onInvalid`
+(`'ignore'` | `'remove'` | `'throw'`, default `'ignore'`) governs reads only, where the data is
+already on disk and a render must not crash.
+
+A typed call site is already checked by the compiler, so runtime write validation is aimed at
+untyped callers, JavaScript consumers, and values that pass the type check but fail a refinement
+(`z.string().min(10)`).
+
+Related: a Standard Schema validator that returns a `Promise` is rejected with a clear
+`InvalidOptionsError` rather than silently treated as valid — a synchronous store cannot await it
+(ADR-006).
+
+---
+
 ## Open questions
 
-- `get()` on a key absent from both `defaults` and `schema`: compile error with a `getUnsafe()`
-  escape hatch, or fall back to `unknown`? Leaning compile error. (A store with neither option is
-  "loose" and accepts any string key — that case is settled.)
-- Memory fallback shared across instances in a runtime, or per-instance? Leaning shared-per-adapter
-  so behaviour matches real storage.
+- ~~`get()` on a key absent from both `defaults` and `schema`~~ — settled in M3: a compile error.
+  At runtime an undeclared key is simply untyped (no default, no validation) rather than throwing,
+  so `entries()` over stale storage keeps working.
+- ~~Memory fallback shared or per-instance?~~ — settled in M1: shared per adapter name.
+- Should a `t.date()` key coerce a stored ISO string into a `Date`? It would smooth migration off
+  raw storage, but silent coercion is hard to reason about. Currently it fails validation and
+  `onInvalid` applies.
 - `inspect()` in production builds — strip entirely via `NODE_ENV`, or keep behind a flag?
 - Should `nss scan` also detect _keys_ (not just namespaces) statically? Keys come from `defaults`
   and `schema` object literals, so it is feasible; the risk is false negatives with computed keys.

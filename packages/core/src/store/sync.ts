@@ -6,6 +6,7 @@ import {
   NamespacedStorageError,
   StorageQuotaError,
   StorageUnavailableError,
+  ValidationError,
   isQuotaError,
 } from '../errors.js';
 import {
@@ -14,7 +15,14 @@ import {
   createKeyCodec,
   isReservedKey,
 } from '../namespace/key.js';
-import type { CorruptPolicy, StoreOptions, SyncNamespacedStore, TrySetResult } from '../types.js';
+import { type ResolvedTyping, cloneDefault, formatIssues } from '../typing/resolve.js';
+import type {
+  CorruptPolicy,
+  InvalidPolicy,
+  StoreOptions,
+  SyncNamespacedStore,
+  TrySetResult,
+} from '../types.js';
 
 export interface StoreContext {
   /** `[prefix?, namespace, ...children]`, already ordered. */
@@ -23,13 +31,16 @@ export interface StoreContext {
   /** Whether the *requested* backend was available, as opposed to the fallback now in use. */
   available: boolean;
   options: StoreOptions;
+  /** Absent for a store with no declared keys. */
+  typing?: ResolvedTyping | undefined;
 }
 
 export function createSyncStore(context: StoreContext): SyncNamespacedStore {
-  const { segments, adapter, available, options } = context;
+  const { segments, adapter, available, options, typing } = context;
   const separator = options.separator;
   const codec = createKeyCodec(separator === undefined ? { segments } : { segments, separator });
   const onCorrupt: CorruptPolicy = options.onCorrupt ?? 'ignore';
+  const onInvalid: InvalidPolicy = options.onInvalid ?? 'ignore';
   const path = codec.path;
 
   /** A throwing `onError` handler must never take the storage call down with it. */
@@ -41,6 +52,11 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
     }
   };
 
+  const defaultFor = (key: string): unknown =>
+    typing?.defaults.has(key) === true
+      ? cloneDefault(typing.defaults.get(key), path, key)
+      : undefined;
+
   const namespacedKeys = (): string[] => {
     const out: string[] = [];
     for (const rawKey of adapter.keys()) {
@@ -48,6 +64,19 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
       if (key !== null && !isReservedKey(key)) out.push(key);
     }
     return out;
+  };
+
+  /** Returns the validated value, or throws ValidationError. A key with no schema passes through. */
+  const validate = (key: string, value: unknown): unknown => {
+    const validator = typing?.validators.get(key);
+    if (!validator) return value;
+    const result = validator(value);
+    if (result.ok) return result.value;
+    throw new ValidationError(
+      `The value for "${key}" does not match its schema: ${formatIssues(result.issues)}.`,
+      result.issues,
+      { namespace: path, key },
+    );
   };
 
   const store: SyncNamespacedStore = {
@@ -61,7 +90,10 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
         store.remove(key);
         return;
       }
-      const raw = encode(value, path, key);
+      // Writes are validated and always throw: keeping bad data out is worth more than
+      // tolerating it, and a typed call site has already been checked at compile time.
+      const validated = validate(key, value);
+      const raw = encode(validated, path, key);
       const fullKey = codec.encode(key);
       try {
         adapter.setItem(fullKey, raw);
@@ -86,15 +118,28 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
       assertValidKey(key, path);
       const fullKey = codec.encode(key);
       const raw = adapter.getItem(fullKey);
-      if (raw === null) return undefined;
+      if (raw === null) return defaultFor(key) as T | undefined;
+
+      let value: unknown;
       try {
-        return decode(raw, path, key).value as T;
+        value = decode(raw, path, key).value;
       } catch (error) {
         if (!(error instanceof DecodeError)) throw error;
         report(error);
         if (onCorrupt === 'throw') throw error;
         if (onCorrupt === 'remove') adapter.removeItem(fullKey);
-        return undefined;
+        return defaultFor(key) as T | undefined;
+      }
+
+      try {
+        return validate(key, value) as T;
+      } catch (error) {
+        if (!(error instanceof ValidationError)) throw error;
+        report(error);
+        if (onInvalid === 'throw') throw error;
+        if (onInvalid === 'remove') adapter.removeItem(fullKey);
+        // Data left over from an older shape falls back to the default rather than to nothing.
+        return defaultFor(key) as T | undefined;
       }
     },
 
@@ -142,7 +187,8 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
 
     child(segment) {
       assertValidSegment(segment, 'child segment', path);
-      return createSyncStore({ ...context, segments: [...segments, segment] });
+      // A child declares no keys of its own, so it is deliberately untyped.
+      return createSyncStore({ ...context, segments: [...segments, segment], typing: undefined });
     },
   };
 
