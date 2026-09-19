@@ -266,6 +266,51 @@ split visible at the call site rather than hidden in a config value.
 
 ---
 
+## ADR-014 — Type tags are out-of-band paths, and they apply at any depth
+
+**Status:** accepted · **Date:** 2026-09-19 · **Refines:** ADR-003 (changes the envelope's `t` field)
+
+PLAN.md §6.2 specified a single top-level `t: "date"` on the envelope. Implementing M2 showed that
+is only half a solution: it fixes `set('lastOpened', new Date())` but not
+`set('user', { lastSeen: new Date() })`, which is the far more common shape. A top-level-only tag
+would leave the exact bug the package exists to fix alive one level down.
+
+Two ways to make it deep were considered.
+
+**In-band markers** (replace each special value with `{"__nss_t":"date","v":…}`, as many
+serializers do). Rejected: a user object that genuinely contains `__nss_t` cannot be escaped without
+either an infinite wrap loop or renaming the user's own keys, and the payload stops being a faithful
+copy of the user's structure.
+
+**Out-of-band paths** (accepted, the approach `superjson` uses). The payload stays exactly the
+user's structure; the types live beside it:
+
+```json
+{
+  "__nss": 1,
+  "v": { "user": { "lastSeen": 1758297600000 } },
+  "t": [[["user", "lastSeen"], "date"]]
+}
+```
+
+`t` is a list of `[path, tag]` pairs; `[]` is the root. Nothing is ever injected into user data, so
+the only collision left is a top-level `__nss`, which ADR-003's force-the-envelope rule already
+covers. Revival runs deepest-path-first, so a `Map`'s entries are restored while it is still a plain
+array of pairs.
+
+Consequences beyond the original plan:
+
+- **`NaN`, `Infinity` and `-Infinity` are now preserved.** `JSON.stringify` turns all three into
+  `null` silently; this is the same class of bug as a lost `Date` and costs nothing extra to fix.
+- **Nested `undefined` is preserved** (JSON drops the key). Top-level `undefined` still means
+  removal, per the M1 finding — the two are each the intuitive reading in their position.
+- **The `undefined` codec tag from the plan is gone** as a top-level concern, as M1 predicted.
+- **`toJSON` is honoured**, after the built-in types, matching `JSON.stringify`.
+- Cycles are detected per branch, so a shared reference appearing twice is fine and only a genuine
+  cycle throws — with the offending path named.
+
+---
+
 ## Open questions
 
 - `get()` on a key absent from both `defaults` and `schema`: compile error with a `getUnsafe()`

@@ -3,7 +3,7 @@
 > Living document. Every design change goes here first, then into code.
 > Companion: [DECISIONS.md](./DECISIONS.md) (ADR log) · [PREVIEW.md](./PREVIEW.md) (dry run of the output).
 
-**Status:** M0 + M1 done (`0.1.0`) · **Target first release:** `1.0.0` · **npm name:** `namespaced-storage` (verified available)
+**Status:** M0–M2 done (`0.1.0`) · **Target first release:** `1.0.0` · **npm name:** `namespaced-storage` (verified available)
 
 ---
 
@@ -302,16 +302,27 @@ Maximum interoperability, minimum size, and pre-existing raw data keeps working.
 **Envelope (only when needed):**
 
 ```json
-{ "__nss": 1, "v": <encoded>, "t": "date", "c": 1700000000000, "u": 1700000000000, "e": 1700000600000 }
+{
+  "__nss": 1,
+  "v": <payload>,
+  "t": [[["user", "lastSeen"], "date"]],
+  "c": 1700000000000,
+  "u": 1700000000000,
+  "e": 1700000600000
+}
 ```
 
-| field     | meaning                                                           | present when            |
-| --------- | ----------------------------------------------------------------- | ----------------------- |
-| `__nss`   | envelope format version — also the magic marker                   | always (in an envelope) |
-| `v`       | the codec-encoded value                                           | always                  |
-| `t`       | codec tag (`date`, `map`, `set`, `bigint`, `regexp`, `undefined`) | non-JSON-native type    |
-| `c` / `u` | createdAt / updatedAt (ms)                                        | `timestamps: true`      |
-| `e`       | expiresAt (ms)                                                    | a TTL is set            |
+| field     | meaning                                                        | present when                |
+| --------- | -------------------------------------------------------------- | --------------------------- |
+| `__nss`   | envelope format version — also the magic marker                | always (in an envelope)     |
+| `v`       | the payload: the user's structure, unmodified                  | always                      |
+| `t`       | `[path, tag]` pairs for values JSON cannot represent (ADR-014) | any such value at any depth |
+| `c` / `u` | createdAt / updatedAt (ms)                                     | `timestamps: true`          |
+| `e`       | expiresAt (ms)                                                 | a TTL is set                |
+
+Tags are recorded **out of band, by path**, so nothing is ever injected into the user's data and the
+payload stays byte-identical to what they passed in. Supported tags: `date`, `map`, `set`, `bigint`,
+`regexp`, `undef`, `nan`, `inf`, `-inf`.
 
 **Encode:**
 
@@ -499,7 +510,8 @@ Two things the milestone surfaced that were not in the plan:
   pre-existing raw values, synthetic cross-tab `StorageEvent`. Coverage gate 90% on `packages/core`.
 - **Types.** `tsc --strict`, no `any` in the public surface, `expect-type` assertions for inference
   (especially `defaults` → key union and `T[K]`), `@arethetypeswrong/cli` clean.
-- **Size (`size-limit`, gzip).** core level 1 < 3.0 kB · with typing < 5.5 kB · `sideEffects: false`
+- **Size (`size-limit`, minified + brotli).** Budgeted per milestone rather than once up front, so
+  each milestone has to justify its own weight: after M2, 3.25 kB (actual 3.08). 1.0 target < 6 kB · `sideEffects: false`
   and subpath exports so unused features tree-shake away.
 - **Zero runtime dependencies** in `packages/core`.
 - **Packaging.** Dual ESM/CJS, exports map (`.`, `./schema`, `./adapters`, `./package.json`),

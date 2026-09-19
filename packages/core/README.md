@@ -55,8 +55,8 @@ is no central registry file to keep in sync.
 
 ### Values
 
-Any JSON-serializable value works, and is stored exactly as `JSON.stringify` would write it — so
-existing raw data stays readable and anything else that reads the key still works.
+JSON-native values are stored exactly as `JSON.stringify` would write them, so existing raw data
+stays readable and anything else that reads the key still works.
 
 ```ts
 basket.set('items', [{ id: 'sku-1', qty: 2 }]);
@@ -65,6 +65,31 @@ basket.get<number>('count');
 
 basket.set('count', undefined); // same as remove('count')
 ```
+
+```js
+// what is actually in localStorage
+'basket:items'; // [{"id":"sku-1","qty":2}]   ← plain, exactly as before
+```
+
+Types JSON cannot represent survive too — at any depth, not just the top level:
+
+```ts
+basket.set('state', {
+  updatedAt: new Date(),
+  tags: new Set(['sale']),
+  byId: new Map([['sku-1', { addedAt: new Date() }]]),
+  ratio: Infinity,
+});
+
+const state = basket.get('state');
+state.updatedAt; // a real Date
+state.byId.get('sku-1').addedAt; // a real Date, two levels down
+state.ratio; // Infinity — JSON.stringify would have made this null
+```
+
+Supported: `Date`, `Map`, `Set`, `BigInt`, `RegExp`, `NaN`, `±Infinity`, and nested `undefined`
+(which plain JSON drops). Only keys that need it pay for the extra bytes — everything else stays on
+the plain path.
 
 ### Nested namespaces
 
@@ -137,8 +162,8 @@ All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace
 
 ## Roadmap
 
-`0.1.0` is the namespacing core. Next: `Date`/`Map`/`Set` codecs, typing via a `defaults` object,
-TTL, cross-tab change events, migrations, an ESLint plugin that bans raw storage access, and an
+`0.1.0` is the namespacing core plus full value codecs. Next: typing via a `defaults` object, TTL,
+cross-tab change events, migrations, an ESLint plugin that bans raw storage access, and an
 `nss scan` CLI that generates the "what do we store?" inventory from your source.
 
 ## License

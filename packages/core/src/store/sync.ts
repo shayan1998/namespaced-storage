@@ -1,5 +1,6 @@
 import type { SyncAdapter } from '../adapters/types.js';
-import { approximateBytes, encodeJson, formatBytes } from '../codec/json.js';
+import { decode, encode } from '../codec/envelope.js';
+import { approximateBytes, formatBytes } from '../codec/size.js';
 import {
   DecodeError,
   NamespacedStorageError,
@@ -60,7 +61,7 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
         store.remove(key);
         return;
       }
-      const raw = encodeJson(value, path, key);
+      const raw = encode(value, path, key);
       const fullKey = codec.encode(key);
       try {
         adapter.setItem(fullKey, raw);
@@ -87,12 +88,9 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
       const raw = adapter.getItem(fullKey);
       if (raw === null) return undefined;
       try {
-        return JSON.parse(raw) as T;
-      } catch (cause) {
-        const error = new DecodeError(
-          `Could not parse "${fullKey}" — the stored value is not valid JSON.`,
-          { namespace: path, key, cause },
-        );
+        return decode(raw, path, key).value as T;
+      } catch (error) {
+        if (!(error instanceof DecodeError)) throw error;
         report(error);
         if (onCorrupt === 'throw') throw error;
         if (onCorrupt === 'remove') adapter.removeItem(fullKey);

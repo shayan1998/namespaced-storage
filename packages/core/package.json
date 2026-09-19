@@ -57,10 +57,10 @@
   },
   "size-limit": [
     {
-      "name": "core (level 1, namespace only)",
+      "name": "core: namespacing + codecs (M2)",
       "path": "dist/index.js",
       "import": "{ createLocalStorage }",
-      "limit": "3 kB"
+      "limit": "3.25 kB"
     }
   ],
   "engines": {
