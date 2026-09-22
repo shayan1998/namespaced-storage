@@ -62,6 +62,32 @@ export function encode(
   return JSON.stringify(envelope);
 }
 
+/**
+ * Reads just the metadata, without reviving the value. `keys()`, `size` and `has` need to know
+ * whether an entry has expired, and paying a full decode for that would make a cheap operation
+ * expensive. A plain value cannot carry an expiry at all, so the substring check skips the parse
+ * entirely for the common case.
+ */
+export function peekMeta(raw: string): EnvelopeMeta | undefined {
+  if (!raw.includes(MARKER)) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!isEnvelope(parsed)) return undefined;
+  const meta: EnvelopeMeta = {};
+  if (parsed.c !== undefined) meta.c = parsed.c;
+  if (parsed.u !== undefined) meta.u = parsed.u;
+  if (parsed.e !== undefined) meta.e = parsed.e;
+  return hasMeta(meta) ? meta : undefined;
+}
+
+export function isExpired(meta: EnvelopeMeta | undefined, now: number): boolean {
+  return meta?.e !== undefined && meta.e <= now;
+}
+
 export function decode(raw: string, namespace: string, key: string): Decoded {
   let parsed: unknown;
   try {

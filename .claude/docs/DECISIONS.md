@@ -361,6 +361,34 @@ Related: a Standard Schema validator that returns a `Promise` is rejected with a
 
 ---
 
+## ADR-017 — Expiry is lazy, and enumeration never writes
+
+**Status:** accepted · **Date:** 2026-09-22
+
+There is no timer to sweep expired keys: a browser tab that is closed before the deadline would
+leave them forever, and a background sweep would mean writes the caller never asked for. Expiry is
+therefore checked on access.
+
+That raises a question the plan did not: should `keys()`, `size` and `entries()` see expired keys?
+
+- Reporting them is wrong — `keys()` would list a key that `has()` denies.
+- Collecting them there means an enumeration silently mutates storage, which is surprising and, in
+  a cookie-blocked or read-only context, can fail.
+
+**Accepted:** `get` and `has` are expiry-aware **and collect** the dead entry, since they are
+already touching that one key. `keys`, `size` and `entries` **hide** expired entries but never
+delete. The two agree on what exists; only the cleanup differs.
+
+The cost of checking is kept near zero by `peekMeta`, which returns early unless the raw string
+contains the envelope marker at all. A plain value cannot carry an expiry, so the common case
+never pays for a `JSON.parse` — and after ADR-003 most values are plain.
+
+Related detail: with `timestamps: true`, an update has to read the existing entry to keep its
+original `createdAt`, so every write costs one extra read. That is why timestamps are off by
+default rather than always on.
+
+---
+
 ## Open questions
 
 - ~~`get()` on a key absent from both `defaults` and `schema`~~ — settled in M3: a compile error.

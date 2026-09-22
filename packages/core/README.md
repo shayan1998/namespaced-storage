@@ -149,6 +149,35 @@ Writes always validate and throw `ValidationError`. Reads follow `onInvalid`
 Built in: `t.string` `t.number` `t.boolean` `t.bigint` `t.date` `t.literal` `t.enum` `t.array`
 `t.object` `t.record` `t.union` `t.unknown`, each with `.optional()` and `.nullable()`.
 
+### Expiry
+
+```ts
+auth.set('token', jwt, { ttl: 15 * 60_000 }); // 15 minutes
+auth.ttl('token'); // 899_431 — ms remaining, or null
+
+// 16 minutes later
+auth.get('token'); // undefined, and the dead entry is collected
+auth.has('token'); // false
+```
+
+Set `ttl` on the store to give every key the same lifetime; a per-call `ttl` overrides it.
+Expiry is checked on access — there is no timer, so nothing depends on the tab staying open.
+`get` and `has` collect an expired entry as they pass it; `keys()`, `size` and `entries()` hide
+it but never write.
+
+A key with a default falls back to that default once it expires.
+
+### Timestamps
+
+```ts
+const store = createLocalStorage('s', { timestamps: true });
+store.set('count', 1);
+store.meta('count'); // { createdAt: 1758297600000, updatedAt: 1758297600000 }
+```
+
+Off by default: it turns every value into an envelope, and an update costs one extra read to keep
+the original `createdAt`.
+
 ### Nested namespaces
 
 ```ts
@@ -221,7 +250,7 @@ All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace
 
 ## Roadmap
 
-`0.1.0` covers namespacing, value codecs and typing. Next: TTL, cross-tab change events,
+`0.1.0` covers namespacing, value codecs, typing and expiry. Next: cross-tab change events,
 migrations, an ESLint plugin that bans raw storage access, and an `nss scan` CLI that generates the
 "what do we store?" inventory from your source.
 

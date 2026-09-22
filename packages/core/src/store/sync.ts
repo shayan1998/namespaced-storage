@@ -1,8 +1,9 @@
 import type { SyncAdapter } from '../adapters/types.js';
-import { decode, encode } from '../codec/envelope.js';
+import { type EnvelopeMeta, decode, encode, isExpired, peekMeta } from '../codec/envelope.js';
 import { approximateBytes, formatBytes } from '../codec/size.js';
 import {
   DecodeError,
+  InvalidOptionsError,
   NamespacedStorageError,
   StorageQuotaError,
   StorageUnavailableError,
@@ -18,7 +19,9 @@ import {
 import { type ResolvedTyping, cloneDefault, formatIssues } from '../typing/resolve.js';
 import type {
   CorruptPolicy,
+  EntryMeta,
   InvalidPolicy,
+  SetOptions,
   StoreOptions,
   SyncNamespacedStore,
   TrySetResult,
@@ -41,7 +44,10 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
   const codec = createKeyCodec(separator === undefined ? { segments } : { segments, separator });
   const onCorrupt: CorruptPolicy = options.onCorrupt ?? 'ignore';
   const onInvalid: InvalidPolicy = options.onInvalid ?? 'ignore';
+  const timestamps = options.timestamps ?? false;
   const path = codec.path;
+
+  if (options.ttl !== undefined) assertValidTtl(options.ttl, path);
 
   /** A throwing `onError` handler must never take the storage call down with it. */
   const report = (error: NamespacedStorageError): void => {
@@ -58,10 +64,16 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
       : undefined;
 
   const namespacedKeys = (): string[] => {
+    const now = Date.now();
     const out: string[] = [];
     for (const rawKey of adapter.keys()) {
       const key = codec.decode(rawKey);
-      if (key !== null && !isReservedKey(key)) out.push(key);
+      if (key === null || isReservedKey(key)) continue;
+      // Expired keys are hidden here but not deleted: enumerating should not write.
+      // `get` and `has` do the collecting.
+      const raw = adapter.getItem(rawKey);
+      if (raw !== null && isExpired(peekMeta(raw), now)) continue;
+      out.push(key);
     }
     return out;
   };
@@ -79,12 +91,26 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
     );
   };
 
+  /** Reads the stored metadata for a key, dropping the entry if its lifetime has run out. */
+  const readMeta = (key: string, now: number): EnvelopeMeta | undefined => {
+    const fullKey = codec.encode(key);
+    const raw = adapter.getItem(fullKey);
+    if (raw === null) return undefined;
+    const meta = peekMeta(raw);
+    if (isExpired(meta, now)) {
+      // Lazy cleanup: nothing else will ever come along to collect it.
+      adapter.removeItem(fullKey);
+      return undefined;
+    }
+    return meta;
+  };
+
   const store: SyncNamespacedStore = {
     namespace: path,
     adapter: adapter.name,
     available,
 
-    set(key, value) {
+    set(key, value, setOptions) {
       assertValidKey(key, path);
       if (value === undefined) {
         store.remove(key);
@@ -93,7 +119,7 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
       // Writes are validated and always throw: keeping bad data out is worth more than
       // tolerating it, and a typed call site has already been checked at compile time.
       const validated = validate(key, value);
-      const raw = encode(validated, path, key);
+      const raw = encode(validated, path, key, buildMeta(key, setOptions));
       const fullKey = codec.encode(key);
       try {
         adapter.setItem(fullKey, raw);
@@ -119,6 +145,11 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
       const fullKey = codec.encode(key);
       const raw = adapter.getItem(fullKey);
       if (raw === null) return defaultFor(key) as T | undefined;
+
+      if (isExpired(peekMeta(raw), Date.now())) {
+        adapter.removeItem(fullKey);
+        return defaultFor(key) as T | undefined;
+      }
 
       let value: unknown;
       try {
@@ -150,7 +181,13 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
 
     has(key) {
       assertValidKey(key, path);
-      return adapter.getItem(codec.encode(key)) !== null;
+      const raw = adapter.getItem(codec.encode(key));
+      if (raw === null) return false;
+      if (isExpired(peekMeta(raw), Date.now())) {
+        adapter.removeItem(codec.encode(key));
+        return false;
+      }
+      return true;
     },
 
     clear() {
@@ -171,13 +208,31 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
       return namespacedKeys().length;
     },
 
-    setItem: (key, value) => store.set(key, value),
+    setItem: (key, value, setOptions) => store.set(key, value, setOptions),
     getItem: <T>(key: string) => store.get<T>(key),
     removeItem: (key) => store.remove(key),
 
-    trySet(key, value): TrySetResult {
+    meta(key) {
+      assertValidKey(key, path);
+      const stored = readMeta(key, Date.now());
+      if (stored === undefined) return undefined;
+      const out: EntryMeta = {};
+      if (stored.c !== undefined) out.createdAt = stored.c;
+      if (stored.u !== undefined) out.updatedAt = stored.u;
+      if (stored.e !== undefined) out.expiresAt = stored.e;
+      return out;
+    },
+
+    ttl(key) {
+      assertValidKey(key, path);
+      const now = Date.now();
+      const stored = readMeta(key, now);
+      return stored?.e === undefined ? null : stored.e - now;
+    },
+
+    trySet(key, value, setOptions): TrySetResult {
       try {
-        store.set(key, value);
+        store.set(key, value, setOptions);
         return { ok: true };
       } catch (error) {
         if (error instanceof NamespacedStorageError) return { ok: false, error };
@@ -192,5 +247,31 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
     },
   };
 
+  /** Assembles the envelope metadata a write should carry, or nothing when it needs none. */
+  function buildMeta(key: string, setOptions: SetOptions | undefined): EnvelopeMeta | undefined {
+    const ttl = setOptions?.ttl ?? options.ttl;
+    if (ttl !== undefined) assertValidTtl(ttl, path, key);
+    if (!timestamps && ttl === undefined) return undefined;
+
+    const now = Date.now();
+    const meta: EnvelopeMeta = {};
+    if (timestamps) {
+      // An update keeps its original createdAt, which costs one extra read — only when asked for.
+      meta.c = readMeta(key, now)?.c ?? now;
+      meta.u = now;
+    }
+    if (ttl !== undefined) meta.e = now + ttl;
+    return meta;
+  }
+
   return store;
+}
+
+function assertValidTtl(ttl: number, namespace: string, key?: string): void {
+  if (typeof ttl !== 'number' || !Number.isFinite(ttl) || ttl <= 0) {
+    throw new InvalidOptionsError(
+      `ttl must be a positive, finite number of milliseconds, received ${JSON.stringify(ttl)}.`,
+      key === undefined ? { namespace } : { namespace, key },
+    );
+  }
 }

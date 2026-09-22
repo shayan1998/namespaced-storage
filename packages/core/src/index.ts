@@ -6,8 +6,10 @@ export type { InferEntry, InferSchema, StoreValues, DefaultedKeys } from './typi
 
 export type {
   CorruptPolicy,
+  EntryMeta,
   FallbackPolicy,
   InvalidPolicy,
+  SetOptions,
   StoreOptions,
   SyncNamespacedStore,
   TrySetResult,

@@ -24,6 +24,10 @@ export interface StoreOptions {
   onCorrupt?: CorruptPolicy;
   /** Default `'ignore'` — a value failing its schema reads as its default, or `undefined`. */
   onInvalid?: InvalidPolicy;
+  /** Record `createdAt` / `updatedAt` on every key. Off by default: it costs bytes and a read. */
+  timestamps?: boolean;
+  /** Default lifetime in ms for every key in this namespace. A per-call `ttl` overrides it. */
+  ttl?: number;
   onError?: (error: NamespacedStorageError) => void;
 }
 
@@ -36,6 +40,18 @@ export interface TypedStoreOptions<
   defaults?: D;
   /** `t.*` or any Standard Schema validator. Validates on write, and on read per `onInvalid`. */
   schema?: S;
+}
+
+export interface SetOptions {
+  /** Lifetime in ms from now. Overrides the namespace default. Must be finite and positive. */
+  ttl?: number;
+}
+
+/** Timestamps and expiry recorded alongside a value. Present only for keys that carry them. */
+export interface EntryMeta {
+  createdAt?: number;
+  updatedAt?: number;
+  expiresAt?: number;
 }
 
 export type TrySetResult = { ok: true } | { ok: false; error: NamespacedStorageError };
@@ -60,6 +76,10 @@ interface StoreCommon<K extends string> extends StoreIdentity {
    */
   keys(): K[];
   readonly size: number;
+  /** Timestamps and expiry for a key, or `undefined` when it carries none. */
+  meta(key: K): EntryMeta | undefined;
+  /** Milliseconds until the key expires, or `null` when it has no expiry or is already gone. */
+  ttl(key: K): number | null;
   /** A nested namespace: `basket.child('ui')` reads and writes `basket:ui:*`. It is untyped. */
   child(segment: string): SyncNamespacedStore;
   removeItem(key: K): void;
@@ -68,13 +88,13 @@ interface StoreCommon<K extends string> extends StoreIdentity {
 /** A store with no declared keys: any string key, values typed by the caller. */
 export interface SyncNamespacedStore extends StoreCommon<string> {
   /** Writing `undefined` removes the key. */
-  set(key: string, value: unknown): void;
+  set(key: string, value: unknown, options?: SetOptions): void;
   get<T = unknown>(key: string): T | undefined;
   entries(): [string, unknown][];
-  setItem(key: string, value: unknown): void;
+  setItem(key: string, value: unknown, options?: SetOptions): void;
   getItem<T = unknown>(key: string): T | undefined;
   /** Like `set`, but returns the error instead of throwing it. */
-  trySet(key: string, value: unknown): TrySetResult;
+  trySet(key: string, value: unknown, options?: SetOptions): TrySetResult;
 }
 
 /**
@@ -87,10 +107,10 @@ export interface TypedSyncNamespacedStore<
   V extends Record<string, unknown>,
   D extends keyof V = never,
 > extends StoreCommon<keyof V & string> {
-  set<K extends keyof V & string>(key: K, value: V[K]): void;
+  set<K extends keyof V & string>(key: K, value: V[K], options?: SetOptions): void;
   get<K extends keyof V & string>(key: K): K extends D ? V[K] : V[K] | undefined;
   entries(): { [K in keyof V & string]: [K, V[K]] }[keyof V & string][];
-  setItem<K extends keyof V & string>(key: K, value: V[K]): void;
+  setItem<K extends keyof V & string>(key: K, value: V[K], options?: SetOptions): void;
   getItem<K extends keyof V & string>(key: K): K extends D ? V[K] : V[K] | undefined;
-  trySet<K extends keyof V & string>(key: K, value: V[K]): TrySetResult;
+  trySet<K extends keyof V & string>(key: K, value: V[K], options?: SetOptions): TrySetResult;
 }
