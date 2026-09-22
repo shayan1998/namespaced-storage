@@ -31,13 +31,14 @@ An npm package that puts a namespacing, typing and governance layer over key-val
 
 ## Status
 
-**M0 (scaffold) and M1 (namespacing core) are done** — `packages/core` at `0.1.0`, 64 tests,
-99.5% line coverage, 2.09 kB. **M2 (codecs / smart envelope) is next.**
+**M0–M3 done** — `packages/core` at `0.1.0`: namespacing, value codecs, and typing.
+149 tests, 99.8% line coverage, 3.81 kB (4.41 kB with `t.*`). **M4 (TTL + timestamps) is next.**
 
 ```bash
 pnpm check   # typecheck + lint + test + build, everything CI runs
 ```
 
-Known gaps deliberately left for later milestones: no envelope yet (plain JSON only), so no
-`Date`/`Map`/`Set` round-trip, no TTL, no typing from `defaults`, no events, no namespace conflict
-guard, no ESLint plugin, no CLI.
+Keep this block current at the end of every milestone.
+
+Not built yet: TTL, change events, namespace conflict guard, migrations, devtools, the ESLint
+plugin, and the `nss` CLI. See the milestone table in PLAN.md.
