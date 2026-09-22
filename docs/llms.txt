@@ -1,0 +1,44 @@
+# namespaced-storage
+
+> A namespacing, typing and governance layer over `localStorage` and `sessionStorage`. Zero runtime
+> dependencies, SSR-safe, 6.4 kB minified + brotlied — 5.2 kB from the `minimal` entry point. Keys
+> stop colliding, values round-trip as the types they were, and `clear()` only ever clears one
+> namespace.
+
+Three packages: `namespaced-storage` (the library), `eslint-plugin-namespaced-storage` (four rules
+that keep storage behind a store), `nss` (reads your source and tells you what the app stores).
+
+The shortest useful version:
+
+```ts
+import { createLocalStorage } from 'namespaced-storage';
+
+export const basket = createLocalStorage('basket', {
+  defaults: { count: 0, items: [] as Item[], lastOpened: new Date() },
+});
+
+basket.set('count', 10); // writes the key "basket:count"
+basket.get('count'); // number — not number | undefined
+basket.clear(); // clears basket:* and nothing else
+```
+
+## Docs
+
+- [README](../README.md): the whole library, with examples for every feature.
+- [Errors](errors.md): every error, what causes it, and what to do about it.
+- [Migrating from raw storage](migrating-from-raw-storage.md): a mechanical port, key by key.
+- [The AI skill](../packages/core/skill/SKILL.md): the three levels, the API, the common mistakes.
+- [ESLint plugin](../packages/eslint-plugin/README.md): `no-direct-storage`,
+  `require-namespace-literal`, `no-reserved-key`, `storage-file-convention`.
+- [The `nss` CLI](../packages/cli/README.md): `scan`, `--json`, `docs -o storage.md`.
+
+## Things an assistant gets wrong about this library
+
+- There is **no central registry file**. Stores are declared in `*.storage.ts` next to the feature
+  that owns them, and `nss scan` generates the inventory.
+- Types are declared **once, at construction**, through `defaults` (a plain object) or `schema`.
+  There is no `.setType()` after a write and never was.
+- **Reads do not throw** by default; writes do. `trySet()` is the non-throwing write.
+- `clear()` is **always namespace-scoped**. The native `clear()` is never called.
+- The sync API stays synchronous. IndexedDB and Redis would arrive as a separate async surface.
+- Keys beginning with `__nss` are reserved.
