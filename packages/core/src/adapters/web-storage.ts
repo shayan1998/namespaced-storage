@@ -1,3 +1,4 @@
+import { createEmitter } from './emitter.js';
 import type { SyncAdapter } from './types.js';
 
 export type WebStorageKind = 'local' | 'session';
@@ -41,6 +42,38 @@ export function createWebStorageAdapter(kind: WebStorageKind): SyncAdapter {
   let resolved: Storage | null | undefined;
   const storage = (): Storage | null => (resolved ??= probe(kind));
 
+  const emitter = createEmitter();
+  let detachNative: (() => void) | undefined;
+
+  /**
+   * The native `storage` event only fires in *other* tabs, so this covers remote changes; local
+   * ones are emitted by setItem/removeItem below. It is attached on the first subscription and
+   * dropped again with the last, so a store nobody listens to leaks no window listener.
+   */
+  const attachNative = (): (() => void) => {
+    const target = globalThis as {
+      addEventListener?: typeof window.addEventListener;
+      removeEventListener?: typeof window.removeEventListener;
+    };
+    if (typeof target.addEventListener !== 'function') return () => {};
+
+    const handler = (event: Event): void => {
+      const storageEvent = event as StorageEvent;
+      // `storage` fires for both areas, so a sessionStorage store would otherwise react to a
+      // localStorage write that happened to use the same key.
+      if (storageEvent.storageArea !== storage()) return;
+      emitter.emit({
+        key: storageEvent.key,
+        newValue: storageEvent.newValue,
+        oldValue: storageEvent.oldValue,
+        source: 'remote',
+      });
+    };
+
+    target.addEventListener('storage', handler);
+    return () => target.removeEventListener?.('storage', handler);
+  };
+
   return {
     kind: 'sync',
     name: kind === 'local' ? 'localStorage' : 'sessionStorage',
@@ -58,14 +91,21 @@ export function createWebStorageAdapter(kind: WebStorageKind): SyncAdapter {
     // Deliberately unguarded: a failed write must surface, and the store layer turns a quota
     // failure into StorageQuotaError. Silently dropping writes is the worse bug.
     setItem(key, value) {
+      // Capturing the previous value costs a read, so it is only paid for when observed.
+      const oldValue = emitter.size > 0 ? this.getItem(key) : null;
       storage()?.setItem(key, value);
+      if (emitter.size > 0) emitter.emit({ key, newValue: value, oldValue, source: 'local' });
     },
 
     removeItem(key) {
+      const oldValue = emitter.size > 0 ? this.getItem(key) : null;
       try {
         storage()?.removeItem(key);
       } catch {
         /* a failed delete is not worth propagating */
+      }
+      if (oldValue !== null && emitter.size > 0) {
+        emitter.emit({ key, newValue: null, oldValue, source: 'local' });
       }
     },
 
@@ -82,6 +122,18 @@ export function createWebStorageAdapter(kind: WebStorageKind): SyncAdapter {
       } catch {
         return [];
       }
+    },
+
+    subscribe(listener) {
+      const remove = emitter.add(listener);
+      detachNative ??= attachNative();
+      return () => {
+        remove();
+        if (emitter.size === 0) {
+          detachNative?.();
+          detachNative = undefined;
+        }
+      };
     },
   };
 }

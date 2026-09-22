@@ -7,6 +7,7 @@ import {
   NamespacedStorageError,
   StorageQuotaError,
   StorageUnavailableError,
+  SubscriberError,
   ValidationError,
   isQuotaError,
 } from '../errors.js';
@@ -18,6 +19,7 @@ import {
 } from '../namespace/key.js';
 import { type ResolvedTyping, cloneDefault, formatIssues } from '../typing/resolve.js';
 import type {
+  ChangeEvent,
   CorruptPolicy,
   EntryMeta,
   InvalidPolicy,
@@ -25,6 +27,7 @@ import type {
   StoreOptions,
   SyncNamespacedStore,
   TrySetResult,
+  Unsubscribe,
 } from '../types.js';
 
 export interface StoreContext {
@@ -103,6 +106,21 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
       return undefined;
     }
     return meta;
+  };
+
+  /**
+   * Turns a raw stored string into a value for a change event. Unlike `get` it never throws and
+   * never applies a default: an event reports what happened, and a listener running inside the
+   * browser's event loop must not be able to take the page down.
+   */
+  const valueFromRaw = (key: string, raw: string | null): unknown => {
+    if (raw === null) return undefined;
+    try {
+      return validate(key, decode(raw, path, key).value);
+    } catch (error) {
+      if (error instanceof NamespacedStorageError) report(error);
+      return undefined;
+    }
   };
 
   const store: SyncNamespacedStore = {
@@ -238,6 +256,62 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
         if (error instanceof NamespacedStorageError) return { ok: false, error };
         throw error;
       }
+    },
+
+    subscribe(
+      keyOrListener: string | ((event: ChangeEvent) => void),
+      maybeListener?: (event: ChangeEvent) => void,
+    ): Unsubscribe {
+      const watchedKey = typeof keyOrListener === 'string' ? keyOrListener : undefined;
+      const listener = (typeof keyOrListener === 'string' ? maybeListener : keyOrListener) as
+        ((event: ChangeEvent) => void) | undefined;
+      if (listener === undefined) return () => {};
+      if (watchedKey !== undefined) assertValidKey(watchedKey, path);
+      // `noop`, and any future adapter that cannot observe, simply never fires.
+      if (adapter.subscribe === undefined) return () => {};
+
+      const deliver = (event: ChangeEvent): void => {
+        try {
+          listener(event);
+        } catch (cause) {
+          // A throwing subscriber must not take down the others, nor the storage event itself.
+          report(
+            new SubscriberError(
+              `A subscriber for "${event.key ?? '*'}" threw. The other subscribers are unaffected.`,
+              { namespace: path, cause, ...(event.key === null ? {} : { key: event.key }) },
+            ),
+          );
+        }
+      };
+
+      return adapter.subscribe((change) => {
+        if (change.key === null) {
+          // Another tab cleared the whole area. A per-key subscriber is told about its own key
+          // rather than handed a null it would have to interpret.
+          deliver(
+            watchedKey === undefined
+              ? { key: null, newValue: undefined, oldValue: undefined, source: change.source }
+              : {
+                  key: watchedKey,
+                  newValue: undefined,
+                  oldValue: undefined,
+                  source: change.source,
+                },
+          );
+          return;
+        }
+
+        const key = codec.decode(change.key);
+        if (key === null || isReservedKey(key)) return;
+        if (watchedKey !== undefined && key !== watchedKey) return;
+
+        deliver({
+          key,
+          newValue: valueFromRaw(key, change.newValue),
+          oldValue: valueFromRaw(key, change.oldValue),
+          source: change.source,
+        });
+      });
     },
 
     child(segment) {

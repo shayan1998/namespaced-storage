@@ -5,6 +5,7 @@ export type { StandardSchemaV1 } from './typing/standard.js';
 export type { InferEntry, InferSchema, StoreValues, DefaultedKeys } from './typing/infer.js';
 
 export type {
+  ChangeEvent,
   CorruptPolicy,
   EntryMeta,
   FallbackPolicy,
@@ -15,6 +16,7 @@ export type {
   TrySetResult,
   TypedStoreOptions,
   TypedSyncNamespacedStore,
+  Unsubscribe,
 } from './types.js';
 
 export {
@@ -26,6 +28,7 @@ export {
   SerializationError,
   StorageQuotaError,
   StorageUnavailableError,
+  SubscriberError,
   ValidationError,
   type ErrorCode,
 } from './errors.js';

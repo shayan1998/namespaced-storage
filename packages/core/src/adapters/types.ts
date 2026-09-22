@@ -1,8 +1,13 @@
-/** A raw, un-namespaced change observed by an adapter. `key: null` means "everything changed". */
+/**
+ * A raw, un-namespaced change observed by an adapter. `key: null` means the whole storage area
+ * was cleared elsewhere, which is what the native `storage` event reports for a foreign `clear()`.
+ */
 export interface RawChange {
   key: string | null;
   newValue: string | null;
   oldValue: string | null;
+  /** `'remote'` means another tab did it. The native event never fires in the writing tab. */
+  source: 'local' | 'remote';
 }
 
 export interface SyncAdapter {

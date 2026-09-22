@@ -178,6 +178,25 @@ store.meta('count'); // { createdAt: 1758297600000, updatedAt: 1758297600000 }
 Off by default: it turns every value into an envelope, and an update costs one extra read to keep
 the original `createdAt`.
 
+### Reacting to changes
+
+```ts
+const off = basket.subscribe('count', (event) => {
+  event.newValue; // number | undefined — undefined means removed
+  event.oldValue; // the previous value
+  event.source; // 'local' in this tab, 'remote' from another
+});
+
+basket.subscribe((event) => ...); // every key; event.key is null if a tab cleared the area
+off();
+```
+
+Both tabs are covered: the native `storage` event only fires in _other_ tabs, so local writes are
+emitted separately. `oldValue` is free here and is never written to disk.
+
+A subscriber that throws is reported through `onError` and skipped — it cannot stop the other
+subscribers or the write. A value that fails to decode arrives as `undefined` and is reported.
+
 ### Nested namespaces
 
 ```ts
@@ -239,8 +258,8 @@ createLocalStorage('basket', { onCorrupt: 'throw' }); // fail fast in tests
 
 All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace` and `.key`:
 `StorageQuotaError`, `StorageUnavailableError`, `DecodeError`, `SerializationError`,
-`ValidationError` (carries `.issues`), `InvalidNamespaceError`, `InvalidKeyError`,
-`InvalidOptionsError`.
+`ValidationError` (carries `.issues`), `SubscriberError`, `InvalidNamespaceError`,
+`InvalidKeyError`, `InvalidOptionsError`.
 
 ## Constraints
 
@@ -250,8 +269,7 @@ All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace
 
 ## Roadmap
 
-`0.1.0` covers namespacing, value codecs, typing and expiry. Next: cross-tab change events,
-migrations, an ESLint plugin that bans raw storage access, and an `nss scan` CLI that generates the
+`0.1.0` covers namespacing, value codecs, typing, expiry and change events. Next: migrations, an ESLint plugin that bans raw storage access, and an `nss scan` CLI that generates the
 "what do we store?" inventory from your source.
 
 ## License

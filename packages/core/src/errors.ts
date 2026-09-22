@@ -13,6 +13,7 @@ export type ErrorCode =
   | 'SERIALIZE'
   | 'DECODE'
   | 'VALIDATION'
+  | 'SUBSCRIBER'
   | 'MIGRATION';
 
 export interface ErrorContext {
@@ -92,6 +93,13 @@ export class ValidationError extends NamespacedStorageError {
   ) {
     super('VALIDATION', message, context);
     this.issues = issues;
+  }
+}
+
+/** A change-event subscriber threw. Reported, never rethrown into the event loop. */
+export class SubscriberError extends NamespacedStorageError {
+  constructor(message: string, context?: ErrorContext) {
+    super('SUBSCRIBER', message, context);
   }
 }
 

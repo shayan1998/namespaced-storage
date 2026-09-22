@@ -389,6 +389,52 @@ default rather than always on.
 
 ---
 
+## ADR-018 — The adapter is the single source of change events
+
+**Status:** accepted · **Date:** 2026-09-22
+
+The native `storage` event has a property that trips people up: **it does not fire in the tab that
+made the change.** So covering "tell me when this key changes" needs two sources — the native event
+for other tabs, and something local for this one.
+
+Putting the local half in the store would mean every write notifies, and a `child()` or a second
+store over the same namespace would each have their own listener list and miss each other's
+writes.
+
+**Accepted:** the adapter owns both. `setItem` / `removeItem` emit a local `RawChange`, and the web
+adapter additionally listens to the native event for remote ones, tagging each with
+`source: 'local' | 'remote'`. Two stores over the same backend therefore observe each other, and
+`clear()` produces one event per key for free, because it already goes through `removeItem`.
+
+Details that fall out of this:
+
+- **Filter by `storageArea`.** The `storage` event fires for both localStorage and sessionStorage,
+  so without the check a session store would react to a local write that happened to share a key.
+- **Capturing `oldValue` costs a read**, so the adapter only does it when something is listening.
+- **The native listener is attached on the first subscription and dropped with the last**, so a
+  store nobody watches leaks no window listener.
+
+## ADR-019 — What a subscriber is told, and what it can never do
+
+**Status:** accepted · **Date:** 2026-09-22
+
+A change event is delivered from inside the browser's event loop, where a thrown error has nowhere
+to go, and it carries raw strings that may not decode.
+
+**Accepted:**
+
+- **A subscriber that throws is caught, reported as `SubscriberError`, and skipped.** It never
+  stops the other subscribers, and never stops the write that triggered it.
+- **A value that fails to decode or validate is delivered as `undefined` and reported.** The
+  listener still learns the key changed, which is the useful half.
+- **Defaults are not applied to an event.** `newValue: undefined` means the key was removed. Saying
+  "it is now the default" would conflate a removal with a key that happens to have a fallback.
+- **A foreign `clear()` arrives as `key: null`.** A whole-namespace subscriber is handed that null
+  verbatim; a per-key subscriber is told about _its own_ key instead, because a null it would have
+  to interpret is no use to it.
+
+---
+
 ## Open questions
 
 - ~~`get()` on a key absent from both `defaults` and `schema`~~ — settled in M3: a compile error.

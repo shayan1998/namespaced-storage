@@ -56,6 +56,22 @@ export interface EntryMeta {
 
 export type TrySetResult = { ok: true } | { ok: false; error: NamespacedStorageError };
 
+export type Unsubscribe = () => void;
+
+export interface ChangeEvent<T = unknown> {
+  /**
+   * The namespace-relative key, or `null` when another tab cleared the whole storage area.
+   * A per-key subscriber never sees `null`; it is told about its own key instead.
+   */
+  key: string | null;
+  /** `undefined` when the key was removed. Defaults are not applied to an event. */
+  newValue: T | undefined;
+  /** The previous value. Never persisted — it is free here and only here (ADR-004). */
+  oldValue: T | undefined;
+  /** `'remote'` means another tab made the change. */
+  source: 'local' | 'remote';
+}
+
 interface StoreIdentity {
   /** Full namespace path, e.g. `'myapp:basket'`. */
   readonly namespace: string;
@@ -95,6 +111,10 @@ export interface SyncNamespacedStore extends StoreCommon<string> {
   getItem<T = unknown>(key: string): T | undefined;
   /** Like `set`, but returns the error instead of throwing it. */
   trySet(key: string, value: unknown, options?: SetOptions): TrySetResult;
+  /** Watch one key, in this tab and in others. */
+  subscribe<T = unknown>(key: string, listener: (event: ChangeEvent<T>) => void): Unsubscribe;
+  /** Watch every key in the namespace. */
+  subscribe(listener: (event: ChangeEvent) => void): Unsubscribe;
 }
 
 /**
@@ -113,4 +133,11 @@ export interface TypedSyncNamespacedStore<
   setItem<K extends keyof V & string>(key: K, value: V[K], options?: SetOptions): void;
   getItem<K extends keyof V & string>(key: K): K extends D ? V[K] : V[K] | undefined;
   trySet<K extends keyof V & string>(key: K, value: V[K], options?: SetOptions): TrySetResult;
+  /** Watch one key, in this tab and in others. */
+  subscribe<K extends keyof V & string>(
+    key: K,
+    listener: (event: ChangeEvent<V[K]>) => void,
+  ): Unsubscribe;
+  /** Watch every key in the namespace. */
+  subscribe(listener: (event: ChangeEvent<V[keyof V & string]>) => void): Unsubscribe;
 }
