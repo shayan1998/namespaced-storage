@@ -60,13 +60,13 @@
       "name": "namespacing + codecs (no schema)",
       "path": "dist/index.js",
       "import": "{ createLocalStorage }",
-      "limit": "5 kB"
+      "limit": "5.5 kB"
     },
     {
       "name": "+ the built-in t.* schemas",
       "path": "dist/index.js",
       "import": "{ createLocalStorage, t }",
-      "limit": "6 kB"
+      "limit": "6.5 kB"
     }
   ],
   "engines": {

@@ -5,11 +5,13 @@ import {
   createSessionStorage,
 } from '../src/store/create.js';
 import { resetMemoryAdapters } from '../src/adapters/memory.js';
+import { resetNamespaceRegistry } from '../src/namespace/registry.js';
 import { SubscriberError } from '../src/errors.js';
 import { t } from '../src/typing/t.js';
 import type { ChangeEvent } from '../src/types.js';
 
 beforeEach(() => {
+  resetNamespaceRegistry();
   localStorage.clear();
   sessionStorage.clear();
   resetMemoryAdapters();
@@ -322,8 +324,8 @@ describe('scope', () => {
   });
 
   it('two stores over the same namespace observe each other', () => {
-    const a = createMemoryStorage('shared');
-    const b = createMemoryStorage('shared');
+    const a = createMemoryStorage('shared', { strict: false });
+    const b = createMemoryStorage('shared', { strict: false });
     const listener = vi.fn();
     a.subscribe('k', listener);
     b.set('k', 42);

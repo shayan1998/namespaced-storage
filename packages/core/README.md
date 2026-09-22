@@ -178,6 +178,27 @@ store.meta('count'); // { createdAt: 1758297600000, updatedAt: 1758297600000 }
 Off by default: it turns every value into an envelope, and an update costs one extra read to keep
 the original `createdAt`.
 
+### Catching a duplicate namespace
+
+Two places creating the same namespace is usually an accident, and a silent one:
+
+```
+NamespaceConflictError: Namespace "basket" is already registered on localStorage.
+  first:  src/features/basket/basket.storage.ts:6:24
+  second: src/legacy/cart/store.ts:11:18
+Import the existing store instead of creating a second one.
+Pass { strict: false } if two instances are intentional.
+```
+
+It throws outside production and reports through `onError` inside it, so a real bug never
+white-screens a live page. `strict: true` forces the throw anywhere; `strict: false` turns it off.
+
+`localStorage` and `sessionStorage` may each hold a namespace of the same name, and `child()` is
+never registered.
+
+> In tests, call `resetNamespaceRegistry()` in your setup — otherwise re-creating a store between
+> cases trips the guard.
+
 ### Reacting to changes
 
 ```ts
@@ -258,8 +279,8 @@ createLocalStorage('basket', { onCorrupt: 'throw' }); // fail fast in tests
 
 All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace` and `.key`:
 `StorageQuotaError`, `StorageUnavailableError`, `DecodeError`, `SerializationError`,
-`ValidationError` (carries `.issues`), `SubscriberError`, `InvalidNamespaceError`,
-`InvalidKeyError`, `InvalidOptionsError`.
+`ValidationError` (carries `.issues`), `SubscriberError`, `NamespaceConflictError`,
+`InvalidNamespaceError`, `InvalidKeyError`, `InvalidOptionsError`.
 
 ## Constraints
 

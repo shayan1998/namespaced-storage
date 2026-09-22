@@ -29,6 +29,11 @@ export interface StoreOptions {
   /** Default lifetime in ms for every key in this namespace. A per-call `ttl` overrides it. */
   ttl?: number;
   onError?: (error: NamespacedStorageError) => void;
+  /**
+   * Guard against two places constructing the same namespace. Defaults to throwing outside
+   * production and reporting inside it; `false` turns the guard off entirely.
+   */
+  strict?: boolean;
 }
 
 /** Declares the keys a store holds. See `defaults` and `schema` in the README. */

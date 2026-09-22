@@ -52,6 +52,12 @@ export class StorageQuotaError extends NamespacedStorageError {
   }
 }
 
+export class NamespaceConflictError extends NamespacedStorageError {
+  constructor(message: string, context?: ErrorContext) {
+    super('NAMESPACE_CONFLICT', message, context);
+  }
+}
+
 export class InvalidNamespaceError extends NamespacedStorageError {
   constructor(message: string, context?: ErrorContext) {
     super('INVALID_NAMESPACE', message, context);

@@ -435,6 +435,57 @@ to go, and it carries raw strings that may not decode.
 
 ---
 
+## ADR-020 — The conflict guard throws in development and reports in production
+
+**Status:** accepted · **Date:** 2026-09-22 · **Refines:** ADR-011
+
+ADR-011 said a duplicate namespace "throws `NamespaceConflictError` naming both creation sites".
+Building it exposed a tension the plan had not weighed: identifying a call site means parsing
+`Error.stack`, whose format differs between engines and which minifiers rewrite. A guard that
+throws on a signal it cannot always read would crash a production page over a misread stack.
+
+**Accepted:** `strict` defaults to throwing outside production and reporting inside it. Either way
+the conflict reaches `onError`, so a monitored app finds out. `strict: true` forces the throw
+anywhere; `strict: false` turns the guard off, which is what tests and deliberate second instances
+use.
+
+Three rules make the guard trustworthy rather than merely present:
+
+- **An unknown site is never treated as a match.** If the engine will not give us a stack, two
+  registrations are reported as a conflict rather than assumed to be the same one. Silence is the
+  only failure mode that would make the guard worthless, so it is the one we design against.
+- **Identity is `backend::path`, using the _requested_ backend.** `localStorage` and
+  `sessionStorage` may each hold a namespace of the same name, and falling back to memory must not
+  change what a namespace _is_.
+- **The registry lives on `globalThis` under `Symbol.for`**, so it still works when a bundler or a
+  pnpm layout puts two copies of this package on one page — the case where a silent collision is
+  most likely in the first place.
+
+Children are not registered: nesting is derived, and `basket.child('ui')` twice is ordinary.
+
+### A bug this milestone caught in itself
+
+The first implementation filtered its own stack frames by matching `namespaced-storage/src/`,
+which never matches the real layout (`namespaced-storage/packages/core/src/`). Every call therefore
+resolved to the _same_ internal frame, every namespace looked like a re-evaluation of itself, and
+the guard was completely inert — while the whole suite passed. The tell was that adding the guard
+broke nothing. Once fixed it correctly failed 101 existing tests, all of which were re-creating
+namespaces across cases. That is what `resetNamespaceRegistry()` is for, and test setup now calls it.
+
+## ADR-021 — A malformed call reports its own mistake first
+
+**Status:** accepted · **Date:** 2026-09-22
+
+When a call is both malformed _and_ duplicates a namespace, the registration used to win, so
+`createMemoryStorage('s', { ttl: 0 })` reported a conflict rather than the nonsense ttl.
+
+**Accepted:** the store is constructed — which validates the namespace, the separator, the ttl, and
+every default against its schema — and only then is the namespace registered. The specific, local
+mistake is the actionable one; the conflict is about the environment and can wait. Construction has
+no side effects, so a store built and then discarded costs nothing.
+
+---
+
 ## Open questions
 
 - ~~`get()` on a key absent from both `defaults` and `schema`~~ — settled in M3: a compile error.

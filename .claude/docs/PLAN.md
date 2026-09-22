@@ -3,7 +3,7 @@
 > Living document. Every design change goes here first, then into code.
 > Companion: [DECISIONS.md](./DECISIONS.md) (ADR log) · [PREVIEW.md](./PREVIEW.md) (dry run of the output).
 
-**Status:** M0–M5 done (`0.1.0`) · **Target first release:** `1.0.0` · **npm name:** `namespaced-storage` (verified available)
+**Status:** M0–M6 done (`0.1.0`) · **Target first release:** `1.0.0` · **npm name:** `namespaced-storage` (verified available)
 
 ---
 
@@ -511,7 +511,7 @@ Two things the milestone surfaced that were not in the plan:
 - **Types.** `tsc --strict`, no `any` in the public surface, `expect-type` assertions for inference
   (especially `defaults` → key union and `T[K]`), `@arethetypeswrong/cli` clean.
 - **Size (`size-limit`, minified + brotli).** Budgeted per milestone rather than once up front, so
-  each milestone has to justify its own weight: after M5, 5 kB (actual 4.7; 5.29 with `t.*`). 1.0 target < 6 kB · `sideEffects: false`
+  each milestone has to justify its own weight: after M6, 5.5 kB (actual 5.14; 5.76 with `t.*`). 1.0 target < 6 kB · `sideEffects: false`
   and subpath exports so unused features tree-shake away.
 - **Zero runtime dependencies** in `packages/core`.
 - **Packaging.** Dual ESM/CJS, exports map (`.`, `./schema`, `./adapters`, `./package.json`),

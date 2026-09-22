@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLocalStorage, createMemoryStorage } from '../src/store/create.js';
 import { resetMemoryAdapters } from '../src/adapters/memory.js';
+import { resetNamespaceRegistry } from '../src/namespace/registry.js';
 import { InvalidOptionsError } from '../src/errors.js';
 import { t } from '../src/typing/t.js';
 
 beforeEach(() => {
+  resetNamespaceRegistry();
   localStorage.clear();
   resetMemoryAdapters();
   vi.useFakeTimers();

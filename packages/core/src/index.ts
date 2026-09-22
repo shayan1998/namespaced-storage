@@ -24,6 +24,7 @@ export {
   InvalidKeyError,
   InvalidNamespaceError,
   InvalidOptionsError,
+  NamespaceConflictError,
   NamespacedStorageError,
   SerializationError,
   StorageQuotaError,
@@ -36,3 +37,4 @@ export {
 export type { Adapter, AsyncAdapter, RawChange, SyncAdapter } from './adapters/types.js';
 export { createMemoryAdapter, createNoopAdapter, resetMemoryAdapters } from './adapters/memory.js';
 export { createWebStorageAdapter, type WebStorageKind } from './adapters/web-storage.js';
+export { resetNamespaceRegistry } from './namespace/registry.js';

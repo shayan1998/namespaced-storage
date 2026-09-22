@@ -3,6 +3,7 @@ import type { SyncAdapter } from '../adapters/types.js';
 import { createWebStorageAdapter } from '../adapters/web-storage.js';
 import { type NamespacedStorageError, StorageUnavailableError } from '../errors.js';
 import { assertValidSegment } from '../namespace/key.js';
+import { registerNamespace } from '../namespace/registry.js';
 import type { DefaultedKeys, StoreValues } from '../typing/infer.js';
 import { resolveTyping } from '../typing/resolve.js';
 import type {
@@ -64,7 +65,21 @@ function create(
   const segments = segmentsFor(namespace, options.prefix);
   const typing = resolveTyping(namespace, options.defaults, options.schema);
   const { adapter, available } = resolveAdapter(requested, namespace, options);
-  return createSyncStore({ segments, adapter, available, options, typing });
+
+  // Built first so that a malformed option — a bad ttl, a default contradicting its schema —
+  // reports its own specific problem rather than a namespace conflict it tripped over on the way.
+  const store = createSyncStore({ segments, adapter, available, options, typing });
+
+  registerNamespace({
+    path: segments.join(options.separator ?? ':'),
+    // The *requested* backend, not the resolved one: localStorage and sessionStorage may each
+    // hold a namespace of the same name, and a memory fallback must not change that identity.
+    backend: requested.name,
+    strict: options.strict,
+    report: (error) => reportOnce(options.onError, error),
+  });
+
+  return store;
 }
 
 /**

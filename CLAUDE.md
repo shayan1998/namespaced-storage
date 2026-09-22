@@ -31,8 +31,10 @@ An npm package that puts a namespacing, typing and governance layer over key-val
 
 ## Status
 
-**M0–M5 done** — `packages/core` at `0.1.0`: namespacing, value codecs, typing, TTL, change events.
-205 tests, 99.8% line coverage, 4.7 kB (5.29 kB with `t.*`). **M6 (namespace conflict guard) is next.**
+**M0–M6 done** — `packages/core` at `0.1.0`: namespacing, codecs, typing, TTL, events, conflict guard.
+221 tests, 99.8% line coverage, 5.14 kB (5.76 kB with `t.*`). **M7 (version + migrate) is next.**
+
+Tests must call `resetNamespaceRegistry()` in `beforeEach`, or the conflict guard fires between cases.
 
 ```bash
 pnpm check   # typecheck + lint + test + build, everything CI runs
@@ -40,5 +42,5 @@ pnpm check   # typecheck + lint + test + build, everything CI runs
 
 Keep this block current at the end of every milestone.
 
-Not built yet: namespace conflict guard, migrations, devtools, the ESLint plugin, and the `nss`
-CLI. See the milestone table in PLAN.md.
+Not built yet: migrations, devtools, the ESLint plugin, and the `nss` CLI. See the milestone
+table in PLAN.md.
