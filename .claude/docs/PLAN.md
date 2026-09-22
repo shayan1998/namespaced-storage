@@ -491,6 +491,12 @@ dependencies, and neither may be bundled into the runtime.
 
 Note that `require-namespace-literal` is now **error, not warn** — the CLI's inventory depends on it.
 
+`configs.recommended` and `configs.strict` are flat configs; `configs['legacy-recommended']` and
+`configs['legacy-strict']` are the eslintrc shapes. Every rule but `no-direct-storage` fires only
+on calls that resolve to an import from `namespaced-storage`, so a same-named function of your own
+is never reported; `no-direct-storage` has no import to follow and resolves the global through
+scope instead (ADR-024). The package has zero runtime dependencies of its own.
+
 ---
 
 ## 9. AI skill
@@ -519,16 +525,16 @@ Each milestone ends green: tests passing, types building, size budget met.
 | **M6** ✅ | Namespace guard          | global registry · `NamespaceConflictError` with both creation sites · HMR tolerance                                                                                                         |
 | **M7** ✅ | Versioning               | `version` + `migrate` · per-namespace `__nss:meta` key · `MigrationError`                                                                                                                   |
 | **M8** ✅ | Devtools                 | `inspect()` · `export()` · `globalThis.__NAMESPACED_STORAGE__` (dev builds only)                                                                                                            |
-| **M9**    | ESLint plugin            | the four rules, both configs, rule tests                                                                                                                                                    |
+| **M9** ✅ | ESLint plugin            | the four rules, both configs, rule tests                                                                                                                                                    |
 | **M10**   | `nss` CLI                | `scan` (inventory + cross-file duplicate detection) · `--json` manifest · `docs` generator · CI recipe                                                                                      |
 | **M11**   | Docs & DX                | README · docs site · SKILL.md · `llms.txt` · three examples · migration guide                                                                                                               |
 | **M12**   | Harden & ship            | env matrix tests, `publint` + `@arethetypeswrong/cli`, size budget, npm provenance → **`1.0.0`**                                                                                            |
 
 ### Shipped so far
 
-**M0–M8 → `0.1.0`.** 283 tests, 99.8% lines, 6.33 kB minified+brotli against a 6.4 kB budget,
-`publint` and `attw` clean on both ESM and CJS entry points. Everything through devtools is
-implemented, documented in the README, and covered.
+**M0–M9 → `0.1.0`.** `packages/core`: 283 tests, 99.8% lines, 6.33 kB minified+brotli against a
+6.4 kB budget. `packages/eslint-plugin`: 69 tests, 100% lines, zero runtime dependencies. `publint`
+and `attw` clean on both packages, on both ESM and CJS entry points.
 
 Two things **M1** surfaced that were not in the plan:
 

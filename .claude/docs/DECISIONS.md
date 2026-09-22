@@ -574,6 +574,40 @@ runtime `isProduction()` — no minifier needs to understand it, because nothing
 value failing its schema follows `onInvalid` exactly as a read would. A snapshot that disagreed
 with the store it came from would be a worse debugging tool than no snapshot.
 
+## ADR-024 — The lint rules follow imports, not names
+
+**Status:** accepted · **Date:** 2026-09-22 · **Implements:** M9
+
+A lint rule that fires on the _name_ `createLocalStorage` is trivial to write and impossible to
+trust: every false positive teaches a team to disable the rule, and a disabled rule protects
+nothing.
+
+**Accepted:** `require-namespace-literal`, `no-reserved-key` and `storage-file-convention` only
+fire on a call whose callee resolves to an import from `namespaced-storage` — named,
+renamed (`createLocalStorage as make`), or reached through a namespace import. A factory
+re-exported through a project's own module is invisible to them, and that is the deliberate trade:
+the rules under-report rather than cry wolf, and the CLI's `nss scan` is the tool that sees the
+whole picture.
+
+`no-direct-storage` is the exception, because there is no import to follow: `localStorage` is a
+global. It resolves the identifier **through scope** instead of matching text, so
+`function read(localStorage)` and `const localStorage = new Map()` are untouched, and it covers
+`window.`, `globalThis.` and `self.` in both dot and bracket form. `document.cookie` is opt-in,
+because this package does not own cookies yet.
+
+Three smaller decisions the build forced:
+
+- **Flat configs under the plain names, eslintrc under `legacy-`.** Flat is what ESLint 9 runs, so
+  it gets the unqualified name; a project still on eslintrc is the one that knows it needs the
+  older shape and can say so.
+- **Zero runtime dependencies here too.** The rules are typed against ESLint's own `Rule.RuleModule`
+  — ESLint 9 ships its types — rather than `@typescript-eslint/utils`, and the small glob that
+  `allowInFiles` and the file convention need is thirty lines in the package. A lint plugin that
+  drags in a dependency tree is a lint plugin people skip.
+- **A real `Linter` run in the tests, not only `RuleTester`.** `RuleTester` exercises a rule in
+  isolation and would happily pass while the exported config that wires it up is malformed. The
+  config tests lint a snippet end to end and assert on `ruleId` and severity.
+
 ---
 
 ## Open questions

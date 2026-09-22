@@ -57,6 +57,33 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(happy-dom@15.11.7)(supports-color@7.2.0)
 
+  packages/eslint-plugin:
+    devDependencies:
+      '@arethetypeswrong/cli':
+        specifier: ^0.18.5
+        version: 0.18.5
+      '@types/estree':
+        specifier: ^1.0.9
+        version: 1.0.9
+      '@vitest/coverage-v8':
+        specifier: ^2.1.8
+        version: 2.1.9(supports-color@7.2.0)(vitest@2.1.9(happy-dom@15.11.7)(supports-color@7.2.0))
+      eslint:
+        specifier: ^9.17.0
+        version: 9.39.5(jiti@2.7.0)(supports-color@7.2.0)
+      publint:
+        specifier: ^0.2.12
+        version: 0.2.12
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(jiti@2.7.0)(postcss@8.5.28)(supports-color@7.2.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(happy-dom@15.11.7)(supports-color@7.2.0)
+
 packages:
 
   '@ampproject/remapping@2.3.0':

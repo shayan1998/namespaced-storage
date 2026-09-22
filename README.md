@@ -467,9 +467,12 @@ What is **not** built yet, and is not referred to anywhere above as if it were:
 
 | planned        |                                                           |
 | -------------- | --------------------------------------------------------- |
-| ESLint plugin  | bans raw `localStorage` access outside `*.storage.ts`     |
 | `nss scan` CLI | generates the "what does this app store?" inventory       |
 | async core     | IndexedDB and Redis adapters, on a separate async surface |
+
+The companion [`eslint-plugin-namespaced-storage`](packages/eslint-plugin) ships alongside: it bans
+raw `localStorage`, requires literal namespaces, rejects reserved keys, and can keep declarations
+in `*.storage.ts`.
 
 `owner` and `description` are accepted and stored on the store today, but nothing reads them until
 the CLI lands — set them now and the inventory will be right when it arrives.
