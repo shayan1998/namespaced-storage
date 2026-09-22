@@ -31,13 +31,20 @@ An npm package that puts a namespacing, typing and governance layer over key-val
 
 ## Status
 
-**M0–M9 done, plus the modularity debt.** `packages/core` at `0.1.0`: namespacing, codecs, typing,
-TTL, events, conflict guard, version + migrate, devtools — 299 tests, 99.8% line coverage, 6.41 kB
-(7.01 kB with `t.*`) against a 6.5 kB budget, and **5.17 kB from `namespaced-storage/minimal`**.
-`packages/eslint-plugin` at `0.1.0`: four rules, flat and eslintrc configs — 69 tests, 100% line
-coverage, zero runtime dependencies. `packages/cli` (`nss`) at `0.1.0`: `scan`, `--json`, `docs`,
-duplicate detection — 41 tests, 99% line coverage, `typescript` as its only peer dependency.
-**M11 (docs, the AI skill, examples) is next.**
+**Shipped: `1.0.0`, all twelve milestones.**
+
+| package                            | version | tests | notes                                            |
+| ---------------------------------- | ------- | ----- | ------------------------------------------------ |
+| `namespaced-storage`               | 1.0.0   | 307   | 6.41 kB · 5.17 kB from `/minimal` · 99.8% lines  |
+| `eslint-plugin-namespaced-storage` | 1.0.0   | 69    | four rules, flat + eslintrc, zero deps           |
+| `nss`                              | 1.0.0   | 41    | `scan` · `--json` · `docs`, `typescript` as peer |
+
+Docs in `docs/`, the AI skill in `packages/core/skill/SKILL.md` (symlinked into `.claude/skills/`),
+three examples in `examples/`. `.github/workflows/release.yml` publishes through changesets with
+npm provenance.
+
+**Not done, and waiting on a human:** the npm name `nss` is probably taken — check before the first
+publish; `NPM_TOKEN` must be in repository secrets; nothing has been published yet.
 
 Two entry points, one store: `src/full.ts` wires in every feature, `src/minimal.ts` wires in
 nothing above level 1, and both call `makeFactory` in `src/store/create.ts`. A feature added to the
@@ -52,5 +59,6 @@ pnpm check   # typecheck + lint + test + build, everything CI runs
 
 Keep this block current at the end of every milestone.
 
-Not built yet: the docs site, the AI skill, the examples, and the 1.0 hardening pass. See the
-milestone table in PLAN.md.
+Deliberately not built: a docs-site generator (the markdown is site-ready), and the async core —
+IndexedDB and Redis arrive in 2.0 on a separate async surface (ADR-006). `values()`, `touch()`,
+`import()` and a cookie adapter are the 1.1 list. See PLAN §10.

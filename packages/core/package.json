@@ -1,6 +1,6 @@
 {
   "name": "namespaced-storage",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Namespaced, type-safe, SSR-safe wrapper over localStorage and sessionStorage. Zero dependencies.",
   "keywords": [
     "localstorage",
@@ -16,6 +16,7 @@
   "sideEffects": false,
   "files": [
     "dist",
+    "skill",
     "README.md",
     "LICENSE"
   ],
@@ -52,7 +53,7 @@
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "size": "size-limit",
-    "prepublishOnly": "pnpm build && publint && attw --pack ."
+    "prepublishOnly": "pnpm build && publint && attw --pack . --profile node16"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

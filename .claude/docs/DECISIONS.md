@@ -696,6 +696,38 @@ rather than guessing. Where a key is declared twice, the schema names it: it kno
 **The whole CLI is a function** — `run(argv, io)` returning an exit code — so the tests drive it
 without spawning a process, and `scanSource(file, source)` needs no filesystem at all.
 
+## ADR-027 — What shipping 1.0 actually meant
+
+**Status:** accepted · **Date:** 2026-09-22 · **Implements:** M11, M12
+
+Four decisions the last two milestones forced, none of them about the library's behaviour.
+
+**The examples are reference implementations, not runnable apps.** `examples/react` and
+`examples/next-ssr` would each drag a framework, a bundler and a lockfile's worth of transitive
+dependencies into a repository whose whole argument is that it has none. What a reader needs from
+them is the _pattern_ — the eight-line `useSyncExternalStore` hook, and the one rule about reading
+in an effect so hydration matches — and that is what they contain: source plus a README, linked to
+the library through the workspace. `examples/vanilla-ts` is the same, and none of them are built or
+typechecked by CI. The cost is that they can rot; the mitigation is that they are short enough to
+read in full during review.
+
+**There is no docs site yet.** Everything is plain markdown with no site-generator syntax, so
+pointing VitePress or Astro at `docs/` is configuration rather than a rewrite. Standing one up
+needs a hosting decision and a deploy pipeline that nobody has asked for, and a site that renders
+the same eight files is not what stands between this package and its first user.
+
+**The skill is one file, symlinked.** `packages/core/skill/SKILL.md` is the canonical copy and
+ships inside the package, so a consumer can copy it into their own `.claude/skills/`. This
+repository's `.claude/skills/namespaced-storage/SKILL.md` is a symlink to it rather than a second
+copy: two copies of a document whose entire job is to be accurate is the kind of duplication that
+is wrong within a week.
+
+**node10 module resolution is not supported, and `attw` is told so.** `namespaced-storage/minimal`
+cannot resolve under a resolver that predates the `exports` field, and the fixes — root-level stub
+files, or `typesVersions` — exist to serve Node versions this package already excludes in
+`engines`. The packaging gate runs `attw --profile node16`, which is honest: it states the
+resolvers we support rather than quietly passing on all of them.
+
 ---
 
 ## Open questions

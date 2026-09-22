@@ -1,6 +1,6 @@
 {
   "name": "eslint-plugin-namespaced-storage",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "ESLint rules that keep browser storage behind a namespaced store: no raw localStorage, literal namespaces, reserved keys, co-located declarations.",
   "keywords": [
     "eslint",
@@ -40,7 +40,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "coverage": "vitest run --coverage",
-    "prepublishOnly": "pnpm build && publint && attw --pack ."
+    "prepublishOnly": "pnpm build && publint && attw --pack . --profile node16"
   },
   "peerDependencies": {
     "eslint": ">=9.0.0"

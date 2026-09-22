@@ -483,11 +483,22 @@ All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace
 - Keys starting with `__nss` are reserved.
 - ES2020 · Node ≥18 · evergreen browsers · zero runtime dependencies.
 
+## More
+
+- [Errors](docs/errors.md) — every error, when it fires, and which ones to handle.
+- [Migrating from raw storage](docs/migrating-from-raw-storage.md) — the mechanical port.
+- [The AI skill](packages/core/skill/SKILL.md) — shipped in the package under `skill/`; copy it
+  into your own `.claude/skills/` and your assistant stops inventing an API.
+- [llms.txt](docs/llms.txt) · [all documentation](docs)
+- Examples: [vanilla TypeScript](examples/vanilla-ts) · [React](examples/react) ·
+  [Next.js and SSR](examples/next-ssr)
+
 ## Status
 
-`0.1.0` is usable today, and everything documented above is implemented and tested — 299 tests,
-99.8% line coverage, `publint` and `@arethetypeswrong/cli` clean on both the ESM and CJS entry
-points.
+`1.0.0`. Everything documented above is implemented and tested — 307 tests, 99.8% line coverage,
+`publint` and `@arethetypeswrong/cli` clean for node16 and bundler resolution, on both the ESM and
+CJS entry points. The API, the options, the error taxonomy and the on-disk format are stable;
+changing any of them is a major version.
 
 What is **not** built yet, and is not referred to anywhere above as if it were:
 

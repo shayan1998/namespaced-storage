@@ -1,6 +1,6 @@
 {
   "name": "nss",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Inventory every namespaced-storage namespace in a codebase: what it stores, who owns it, and whether two places claim the same name.",
   "keywords": [
     "namespaced-storage",

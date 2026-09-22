@@ -27,6 +27,24 @@ importers:
         specifier: ^8.18.1
         version: 8.70.0(eslint@9.39.5(jiti@2.7.0)(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3)
 
+  examples/next-ssr:
+    dependencies:
+      namespaced-storage:
+        specifier: workspace:*
+        version: link:../../packages/core
+
+  examples/react:
+    dependencies:
+      namespaced-storage:
+        specifier: workspace:*
+        version: link:../../packages/core
+
+  examples/vanilla-ts:
+    dependencies:
+      namespaced-storage:
+        specifier: workspace:*
+        version: link:../../packages/core
+
   packages/cli:
     devDependencies:
       '@types/node':

@@ -16,7 +16,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "size": "pnpm -r size",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "packaging": "pnpm -r --filter \"./packages/*\" exec publint && pnpm --filter namespaced-storage exec attw --pack . --profile node16 && pnpm --filter eslint-plugin-namespaced-storage exec attw --pack . --profile node16",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "release": "pnpm build && changeset publish"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.10",

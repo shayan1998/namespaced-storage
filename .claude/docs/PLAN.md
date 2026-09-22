@@ -531,18 +531,24 @@ Each milestone ends green: tests passing, types building, size budget met.
 | **M8** ✅  | Devtools                 | `inspect()` · `export()` · `globalThis.__NAMESPACED_STORAGE__` (dev builds only)                                                                                                            |
 | **M9** ✅  | ESLint plugin            | the four rules, both configs, rule tests                                                                                                                                                    |
 | **M10** ✅ | `nss` CLI                | `scan` (inventory + cross-file duplicate detection) · `--json` manifest · `docs` generator · CI recipe                                                                                      |
-| **M11**    | Docs & DX                | README · docs site · SKILL.md · `llms.txt` · three examples · migration guide                                                                                                               |
-| **M12**    | Harden & ship            | env matrix tests, `publint` + `@arethetypeswrong/cli`, size budget, npm provenance → **`1.0.0`**                                                                                            |
+| **M11** ✅ | Docs & DX                | README · docs site · SKILL.md · `llms.txt` · three examples · migration guide                                                                                                               |
+| **M12** ✅ | Harden & ship            | env matrix tests, `publint` + `@arethetypeswrong/cli`, size budget, npm provenance → **`1.0.0`**                                                                                            |
 
 ### Shipped so far
 
-**M0–M10 → `0.1.0`.** `packages/core`: 299 tests, 99.8% lines, 6.41 kB minified+brotli against a
+**M0–M12 → `1.0.0`.** `packages/core`: 307 tests, 99.8% lines, 6.41 kB minified+brotli against a
 6.5 kB budget, and 5.17 kB from `namespaced-storage/minimal`. `packages/eslint-plugin`: 69 tests,
 100% lines, zero runtime dependencies. `packages/cli`: 41 tests, 99% lines, `typescript` as its
-only (peer) dependency. `publint` and `attw` clean, on both ESM and CJS entry points.
+only (peer) dependency. `publint` clean on all three; `attw` clean for node16 and bundler
+resolution (ADR-027). Docs, the AI skill, `llms.txt` and three examples are in the repository, and
+the release workflow publishes through changesets with npm provenance.
 
-**Before publishing:** the npm name `nss` is almost certainly taken — check it, and pick the
-scoped name (`@namespaced-storage/cli`) if it is. The binary stays `nss` either way.
+**Before the first publish, two things are still on a human:**
+
+1. The npm name `nss` is almost certainly taken — check it, and fall back to a scoped name
+   (`@namespaced-storage/cli`) if it is. The binary stays `nss` either way.
+2. `NPM_TOKEN` has to exist in the repository's secrets, and the repository has to be public for
+   provenance to be attested.
 
 Two things **M1** surfaced that were not in the plan:
 
