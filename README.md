@@ -26,7 +26,8 @@ basket.clear(); // clears basket:* and nothing else
 npm install namespaced-storage
 ```
 
-6.33 kB minified + brotlied, 6.95 kB if you also import `t.*`.
+6.41 kB minified + brotlied, 7.01 kB if you also import `t.*`, **5.17 kB** from
+`namespaced-storage/minimal`.
 Zero runtime dependencies. Ships ESM and CJS with types for both.
 
 ## Why
@@ -315,6 +316,31 @@ __NAMESPACED_STORAGE__.inspect(); // every namespace on the page
 That one is development-only on purpose: it holds every store alive, and hands any script on the
 page a directory of everything the app persists.
 
+### Paying only for what you use
+
+Everything above is one import away, and a store that only namespaces still carries the typing
+resolver and the migration engine — 1.2 kB it will never run. A second entry point leaves them out:
+
+```ts
+import { createLocalStorage } from 'namespaced-storage/minimal';
+
+export const basket = createLocalStorage('basket');
+```
+
+| build                        | size, minified + brotlied |
+| ---------------------------- | ------------------------- |
+| `namespaced-storage`         | 6.41 kB                   |
+| `namespaced-storage` + `t.*` | 7.01 kB                   |
+| `namespaced-storage/minimal` | 5.17 kB                   |
+
+`/minimal` keeps everything level 1 is: namespacing, codecs, TTL, timestamps, events, `child()`,
+the duplicate-namespace guard, `inspect()` and `export()`. It leaves out `defaults`, `schema`,
+`version` and `migrate` — and **throws** if you pass one, naming the entry point that supports it,
+rather than accepting it and doing nothing.
+
+Both entry points are the same store with the same semantics; they differ only in what is wired
+in. Move a namespace up by changing its import.
+
 ### Testing
 
 `createMemoryStorage` gives a store with the same API and no browser, which is usually all a unit
@@ -459,7 +485,7 @@ All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace
 
 ## Status
 
-`0.1.0` is usable today, and everything documented above is implemented and tested — 283 tests,
+`0.1.0` is usable today, and everything documented above is implemented and tested — 299 tests,
 99.8% line coverage, `publint` and `@arethetypeswrong/cli` clean on both the ESM and CJS entry
 points.
 

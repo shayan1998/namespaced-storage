@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as publicApi from '../src/index.js';
-import { createMemoryStorage } from '../src/store/create.js';
+import { createMemoryStorage } from '../src/full.js';
 import {
   createMemoryAdapter,
   createNoopAdapter,

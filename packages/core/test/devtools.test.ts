@@ -2,11 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetMemoryAdapters } from '../src/adapters/memory.js';
 import type { Devtools } from '../src/features/inspect.js';
 import { resetNamespaceRegistry } from '../src/namespace/registry.js';
-import {
-  createLocalStorage,
-  createMemoryStorage,
-  createSessionStorage,
-} from '../src/store/create.js';
+import { createLocalStorage, createMemoryStorage, createSessionStorage } from '../src/full.js';
 
 const host = globalThis as Record<string, unknown>;
 

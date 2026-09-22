@@ -7,7 +7,7 @@ import {
   ValidationError,
 } from '../src/errors.js';
 import { resetNamespaceRegistry } from '../src/namespace/registry.js';
-import { createLocalStorage, createMemoryStorage } from '../src/store/create.js';
+import { createLocalStorage, createMemoryStorage } from '../src/full.js';
 import type { MigrateFn } from '../src/types.js';
 import { t } from '../src/typing/t.js';
 

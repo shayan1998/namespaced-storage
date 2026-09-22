@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLocalStorage } from '../src/store/create.js';
+import { createLocalStorage } from '../src/full.js';
 import { resetMemoryAdapters } from '../src/adapters/memory.js';
 import { resetNamespaceRegistry } from '../src/namespace/registry.js';
 import { StorageQuotaError, StorageUnavailableError } from '../src/errors.js';

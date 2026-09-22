@@ -31,15 +31,16 @@ An npm package that puts a namespacing, typing and governance layer over key-val
 
 ## Status
 
-**M0–M9 done.** `packages/core` at `0.1.0`: namespacing, codecs, typing, TTL, events, conflict
-guard, version + migrate, devtools — 283 tests, 99.8% line coverage, 6.33 kB (6.95 kB with `t.*`)
-against a 6.4 kB budget. `packages/eslint-plugin` at `0.1.0`: four rules, flat and eslintrc
-configs — 69 tests, 100% line coverage, zero runtime dependencies.
-**M10 (the `nss` CLI) is next.**
+**M0–M9 done, plus the modularity debt.** `packages/core` at `0.1.0`: namespacing, codecs, typing,
+TTL, events, conflict guard, version + migrate, devtools — 299 tests, 99.8% line coverage, 6.41 kB
+(7.01 kB with `t.*`) against a 6.5 kB budget, and **5.17 kB from `namespaced-storage/minimal`**.
+`packages/eslint-plugin` at `0.1.0`: four rules, flat and eslintrc configs — 69 tests, 100% line
+coverage, zero runtime dependencies. **M10 (the `nss` CLI) is next.**
 
-The core has outgrown its original < 6 kB target because every feature is reachable from the
-factory. Subpath exports are the planned fix — see "Modularity debt" in PLAN §11, to be settled
-by M12 because it changes the public surface.
+Two entry points, one store: `src/full.ts` wires in every feature, `src/minimal.ts` wires in
+nothing above level 1, and both call `makeFactory` in `src/store/create.ts`. A feature added to the
+full build must be injected there, never imported by `create.ts` or `sync.ts` directly, or the
+minimal build silently starts paying for it again (ADR-025).
 
 Tests must call `resetNamespaceRegistry()` in `beforeEach`, or the conflict guard fires between cases.
 

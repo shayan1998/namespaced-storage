@@ -444,8 +444,10 @@ NamespacedStorageError            (base — .code, .namespace, .key?, .cause?)
 
 ```
 packages/core/src/
-├── index.ts                public API
-├── types.ts  errors.ts
+├── index.ts                public API — re-exports full.ts
+├── full.ts                 the three factories, every feature wired in
+├── minimal.ts              the same three, level 1 only (ADR-025)
+├── types.ts  errors.ts  env.ts
 ├── namespace/  key.ts      encode/decode/validate
 │              registry.ts  global duplicate guard (HMR-tolerant)
 ├── codec/      envelope.ts json.ts  builtins.ts  infer.ts
@@ -568,19 +570,18 @@ And two **M7** surfaced:
 - **Types.** `tsc --strict`, no `any` in the public surface, `expect-type` assertions for inference
   (especially `defaults` → key union and `T[K]`), `@arethetypeswrong/cli` clean.
 - **Size (`size-limit`, minified + brotli).** Budgeted per milestone rather than once up front, so
-  each milestone has to justify its own weight: after M8, 6.4 kB (actual 6.33; 6.95 with `t.*`).
-  **The original 1.0 target of < 6 kB no longer holds** — see the modularity debt below. 1.0 target
-  now < 6.5 kB core · `sideEffects: false`
+  each milestone has to justify its own weight: after M9, 6.5 kB (actual 6.41; 7.01 with `t.*`;
+  **5.17 from `namespaced-storage/minimal`**). The original < 6 kB target holds only for the
+  minimal entry point, which is the one the non-negotiable was actually about · `sideEffects: false`
   and subpath exports so unused features tree-shake away.
-- **Modularity debt, to be paid before 1.0.** "Never make level 1 pay for level 2 or 3" is a
-  non-negotiable, and today it is not true: codecs (M2), TTL (M4), events (M5), migrations (M7) and
-  devtools (M8) are all reachable from the factory, so a store that only namespaces still carries
-  every one of them. `sideEffects: false` is set and the modules are side-effect free, but nothing
-  is subpath-exported, so a bundler has no seam to cut along. Closing this needs either subpath
-  entry points (`namespaced-storage/migrate`, `/devtools`) with the factory wiring features in by
-  composition, or accepting the size and saying so honestly in the README. **Decide in M12 at the
-  latest; it changes the public surface, so it cannot be deferred past 1.0.**
+- **Modularity — paid, with `namespaced-storage/minimal` (ADR-025).** "Never make level 1 pay for
+  level 2 or 3" had stopped being true: every feature was reached from the factory. Measured, the
+  debt was 1.19 kB of a 6.39 kB level-1 bundle. A second entry point now wires in nothing above
+  level 1 — 5.17 kB against 6.41 kB — and refuses `defaults`, `schema`, `version` and `migrate` by
+  name rather than ignoring them. One store, one `sync.ts`; the entries differ only in the features
+  they hand `makeFactory`. The seam costs the full build about 0.1 kB, which is the trade.
+  The codecs stay in both: a `Date` reading back as a `Date` is a level-1 promise, not an upgrade.
 - **Zero runtime dependencies** in `packages/core`.
-- **Packaging.** Dual ESM/CJS, exports map (`.`, `./schema`, `./adapters`, `./package.json`),
+- **Packaging.** Dual ESM/CJS, exports map (`.`, `./minimal`, `./package.json`),
   `publint` clean, npm provenance on publish.
 - **Compatibility.** ES2020 target · Node ≥18 · evergreen browsers · SSR-safe by construction.

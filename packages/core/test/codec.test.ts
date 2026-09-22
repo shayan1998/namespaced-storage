@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { decode, encode } from '../src/codec/envelope.js';
-import { createLocalStorage } from '../src/store/create.js';
+import { createLocalStorage } from '../src/full.js';
 import { resetMemoryAdapters } from '../src/adapters/memory.js';
 import { resetNamespaceRegistry } from '../src/namespace/registry.js';
 import { DecodeError, SerializationError } from '../src/errors.js';

@@ -608,6 +608,55 @@ Three smaller decisions the build forced:
   isolation and would happily pass while the exported config that wires it up is malformed. The
   config tests lint a snippet end to end and assert on `ruleId` and severity.
 
+## ADR-025 — A second entry point, `namespaced-storage/minimal`, for level 1
+
+**Status:** accepted · **Date:** 2026-09-22 · **Pays:** the modularity debt recorded in PLAN §11
+
+"Never make level 1 pay for level 2 or 3" had quietly stopped being true. Every feature is reached
+from the factory, so `createLocalStorage('basket')` and nothing else still carried the typing
+resolver, the migration engine and the devtools global.
+
+**Measured first, because the argument is worth nothing without the numbers.** Stubbing each module
+out of a real bundle, brotli, level-1 import:
+
+| build                          | size    | cost of the layer |
+| ------------------------------ | ------- | ----------------- |
+| everything, including `t.*`    | 6.95 kB |                   |
+| today's level 1 (no `t.*`)     | 6.39 kB | —                 |
+| − migrations                   | 5.68 kB | 0.71 kB           |
+| − typing (`defaults`/`schema`) | 5.20 kB | 0.48 kB           |
+| − `inspect()`                  | 4.86 kB | 0.34 kB           |
+
+So the debt is **1.19 kB, 19% of a level-1 bundle** — real, and smaller than the wording of the
+non-negotiable suggested. `t.*` was never part of it: it already tree-shakes, which is why the two
+existing budgets differ.
+
+**Accepted:** a second entry point, `namespaced-storage/minimal`, exporting the same three
+factories wired with nothing above level 1. The default entry does not change at all — same API,
+same types, same behaviour, and the existing suite passes untouched, which is what makes this
+additive rather than a fork of the package.
+
+- **Composition, not a second implementation.** `makeFactory` takes the features a build supports;
+  the two entries differ only in what they hand it. There is one store, one `sync.ts`, one set of
+  semantics. A feature that is absent is absent because nothing references it, which is the only
+  form of tree-shaking a bundler can be trusted to perform.
+- **The minimal build rejects the options it cannot honour.** `defaults`, `schema`, `version` and
+  `migrate` throw `InvalidOptionsError` naming the full entry, at construction. A silently ignored
+  `migrate` would be exactly the dead code ADR-022 refused to ship.
+- **`inspect()` stays.** ADR-023 argued it is the level-1 answer to "nobody can say what this app
+  persists", and dropping it here for 0.34 kB would have been that argument admitting it did not
+  mean it. The conflict guard stays for the same reason: namespacing as discipline (ADR-001) is
+  what level 1 _is_.
+
+**What this does not do.** The codecs (2.5 kB minified, the largest single module after the store
+itself) stay in both builds: `basket.set('at', new Date())` reading back a `Date` is a level-1
+promise, not an upgrade. A JSON-only build would be a third entry point for a fourth audience, and
+one seam is enough.
+
+**If `minimal` turns out to be unused by 1.0, delete it then** — removing an entry point is only
+breaking for the people who adopted it, and that is a decision better made with download numbers
+than with a principle.
+
 ---
 
 ## Open questions

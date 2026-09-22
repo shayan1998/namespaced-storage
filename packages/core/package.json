@@ -33,6 +33,16 @@
         "default": "./dist/index.cjs"
       }
     },
+    "./minimal": {
+      "import": {
+        "types": "./dist/minimal.d.ts",
+        "default": "./dist/minimal.js"
+      },
+      "require": {
+        "types": "./dist/minimal.d.cts",
+        "default": "./dist/minimal.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -60,13 +70,19 @@
       "name": "namespacing + codecs (no schema)",
       "path": "dist/index.js",
       "import": "{ createLocalStorage }",
-      "limit": "6.4 kB"
+      "limit": "6.5 kB"
     },
     {
       "name": "+ the built-in t.* schemas",
       "path": "dist/index.js",
       "import": "{ createLocalStorage, t }",
-      "limit": "7 kB"
+      "limit": "7.1 kB"
+    },
+    {
+      "name": "level 1 only (/minimal)",
+      "path": "dist/minimal.js",
+      "import": "{ createLocalStorage }",
+      "limit": "5.2 kB"
     }
   ],
   "engines": {

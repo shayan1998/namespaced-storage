@@ -1,4 +1,4 @@
-export { createLocalStorage, createSessionStorage, createMemoryStorage } from './store/create.js';
+export { createLocalStorage, createSessionStorage, createMemoryStorage } from './full.js';
 
 export { t, type TSchema, type Issue, type ParseResult } from './typing/t.js';
 export type { StandardSchemaV1 } from './typing/standard.js';

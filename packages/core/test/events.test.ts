@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
-import {
-  createLocalStorage,
-  createMemoryStorage,
-  createSessionStorage,
-} from '../src/store/create.js';
+import { createLocalStorage, createMemoryStorage, createSessionStorage } from '../src/full.js';
 import { resetMemoryAdapters } from '../src/adapters/memory.js';
 import { resetNamespaceRegistry } from '../src/namespace/registry.js';
 import { SubscriberError } from '../src/errors.js';
