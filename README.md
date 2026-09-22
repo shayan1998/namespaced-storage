@@ -26,6 +26,9 @@ basket.clear(); // clears basket:* and nothing else
 npm install namespaced-storage
 ```
 
+5.14 kB minified + brotlied for namespacing and codecs, 5.76 kB if you also import `t.*`.
+Zero runtime dependencies. Ships ESM and CJS with types for both.
+
 ## Why
 
 |                               | raw storage                       | namespaced-storage                           |
@@ -52,6 +55,15 @@ auth.set('token', 'b'); // different key, no collision
 
 Declare each store in a `*.storage.ts` file next to the feature that owns it, and export it. There
 is no central registry file to keep in sync.
+
+There are three factories. They take identical options and return identical stores — only the
+backend differs:
+
+```ts
+createLocalStorage('basket'); // localStorage — survives a browser restart
+createSessionStorage('auth'); // sessionStorage — dies with the tab
+createMemoryStorage('fixture'); // in-process Map — tests, Node, SSR
+```
 
 ### Values
 
@@ -218,6 +230,64 @@ emitted separately. `oldValue` is free here and is never written to disk.
 A subscriber that throws is reported through `onError` and skipped — it cannot stop the other
 subscribers or the write. A value that fails to decode arrives as `undefined` and is reported.
 
+### Testing
+
+`createMemoryStorage` gives a store with the same API and no browser, which is usually all a unit
+test needs. When you want the real `localStorage` path, run the test file under a DOM environment
+(`happy-dom` or `jsdom`) and reset between cases:
+
+```ts
+import { beforeEach } from 'vitest';
+import { resetNamespaceRegistry, resetMemoryAdapters } from 'namespaced-storage';
+
+beforeEach(() => {
+  localStorage.clear();
+  resetNamespaceRegistry(); // otherwise the conflict guard fires on the 2nd test
+  resetMemoryAdapters(); // only if you use createMemoryStorage
+});
+```
+
+`resetNamespaceRegistry()` is the one that bites: a module-level `createLocalStorage('basket')` is
+evaluated once per test file, but a store built inside a test body is rebuilt every case, and the
+second build trips `NamespaceConflictError`. Reset in `beforeEach`, or pass `{ strict: false }` to
+the stores you build inside tests.
+
+### With React
+
+`subscribe` is shaped for `useSyncExternalStore`, but `get` returns a fresh object on every call —
+decoding is what makes the exotic types work — so the snapshot must be cached, or React will
+re-render forever:
+
+```ts
+import { useCallback, useRef, useSyncExternalStore } from 'react';
+
+export function useStored<T>(store, key: string, serverValue: T): T {
+  const version = useRef(0);
+  const cache = useRef<{ v: number; value: T } | null>(null);
+
+  return useSyncExternalStore(
+    useCallback(
+      (onChange) =>
+        store.subscribe(key, () => {
+          version.current++; // invalidate, then let React pull
+          onChange();
+        }),
+      [store, key],
+    ),
+    useCallback(() => {
+      if (cache.current?.v !== version.current) {
+        cache.current = { v: version.current, value: store.get(key) };
+      }
+      return cache.current.value;
+    }, [store, key]),
+    () => serverValue, // server snapshot — storage does not exist there
+  );
+}
+```
+
+For a primitive value (`number`, `string`, `boolean`) the caching is unnecessary — `Object.is`
+already holds — and `() => store.get(key)` is a correct snapshot on its own.
+
 ### Nested namespaces
 
 ```ts
@@ -254,26 +324,35 @@ createLocalStorage('basket', { onCorrupt: 'throw' }); // fail fast in tests
 
 |                                       |                                                                   |
 | ------------------------------------- | ----------------------------------------------------------------- |
-| `set(key, value)`                     | writes; `undefined` removes. Throws `StorageQuotaError` when full |
-| `get<T>(key)`                         | `T \| undefined`                                                  |
+| `set(key, value, { ttl? })`           | writes; `undefined` removes. Throws `StorageQuotaError` when full |
+| `get<T>(key)`                         | `T \| undefined`, or `T` when the key has a default               |
 | `remove(key)` · `has(key)`            |                                                                   |
 | `clear()`                             | this namespace only                                               |
 | `keys()` · `entries()` · `size`       | namespace-relative, internal keys hidden                          |
+| `subscribe(key?, listener)`           | returns an unsubscribe function                                   |
+| `meta(key)`                           | `{ createdAt?, updatedAt?, expiresAt? }`, or `undefined`          |
+| `ttl(key)`                            | ms remaining, or `null` when it has no expiry                     |
 | `setItem` · `getItem` · `removeItem`  | native-style aliases for mechanical migration                     |
 | `trySet(key, value)`                  | `{ ok: true } \| { ok: false, error }`                            |
-| `child(segment)`                      | a nested namespace                                                |
+| `child(segment)`                      | a nested namespace, untyped                                       |
 | `namespace` · `adapter` · `available` |                                                                   |
 
 ### Options
 
-| option                  | default    |                                                            |
-| ----------------------- | ---------- | ---------------------------------------------------------- |
-| `fallback`              | `'memory'` | `'memory'` · `'throw'` · `'noop'`                          |
-| `onCorrupt`             | `'ignore'` | `'ignore'` · `'remove'` · `'throw'`                        |
-| `onError`               | —          | called for every error, including ones that are not thrown |
-| `prefix`                | —          | app-wide prefix: `myapp:basket:count`                      |
-| `separator`             | `':'`      | must not be a character legal inside a namespace           |
-| `owner` · `description` | —          | metadata for the inventory; unused at runtime              |
+| option                  | default    |                                                              |
+| ----------------------- | ---------- | ------------------------------------------------------------ |
+| `defaults`              | —          | plain object; declares the keys, their types and fallbacks   |
+| `schema`                | —          | `t.*` or any Standard Schema validator, per key              |
+| `fallback`              | `'memory'` | `'memory'` · `'throw'` · `'noop'`                            |
+| `onCorrupt`             | `'ignore'` | unparseable value: `'ignore'` · `'remove'` · `'throw'`       |
+| `onInvalid`             | `'ignore'` | value fails its schema: `'ignore'` · `'remove'` · `'throw'`  |
+| `ttl`                   | —          | default lifetime in ms for every key; per-call `ttl` wins    |
+| `timestamps`            | `false`    | record `createdAt` / `updatedAt`, readable via `meta()`      |
+| `strict`                | —          | conflict guard; throws outside production, reports inside it |
+| `onError`               | —          | called for every error, including ones that are not thrown   |
+| `prefix`                | —          | app-wide prefix: `myapp:basket:count`                        |
+| `separator`             | `':'`      | must not be a character legal inside a namespace             |
+| `owner` · `description` | —          | metadata for the inventory; unused at runtime                |
 
 ### Errors
 
@@ -288,10 +367,24 @@ All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace
 - Keys starting with `__nss` are reserved.
 - ES2020 · Node ≥18 · evergreen browsers · zero runtime dependencies.
 
-## Roadmap
+## Status
 
-`0.1.0` covers namespacing, value codecs, typing, expiry and change events. Next: migrations, an ESLint plugin that bans raw storage access, and an `nss scan` CLI that generates the
-"what do we store?" inventory from your source.
+`0.1.0` is usable today, and everything documented above is implemented and tested — 221 tests,
+99.8% line coverage, `publint` and `@arethetypeswrong/cli` clean on both the ESM and CJS entry
+points.
+
+What is **not** built yet, and is not referred to anywhere above as if it were:
+
+| planned               |                                                           |
+| --------------------- | --------------------------------------------------------- |
+| `version` + `migrate` | moving stored data to a new shape without losing it       |
+| devtools              | `inspect()`, `export()`, a global hook in dev builds      |
+| ESLint plugin         | bans raw `localStorage` access outside `*.storage.ts`     |
+| `nss scan` CLI        | generates the "what does this app store?" inventory       |
+| async core            | IndexedDB and Redis adapters, on a separate async surface |
+
+`owner` and `description` are accepted and stored on the store today, but nothing reads them until
+the CLI lands — set them now and the inventory will be right when it arrives.
 
 ## License
 
