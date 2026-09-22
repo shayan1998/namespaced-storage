@@ -35,7 +35,9 @@ An npm package that puts a namespacing, typing and governance layer over key-val
 TTL, events, conflict guard, version + migrate, devtools — 299 tests, 99.8% line coverage, 6.41 kB
 (7.01 kB with `t.*`) against a 6.5 kB budget, and **5.17 kB from `namespaced-storage/minimal`**.
 `packages/eslint-plugin` at `0.1.0`: four rules, flat and eslintrc configs — 69 tests, 100% line
-coverage, zero runtime dependencies. **M10 (the `nss` CLI) is next.**
+coverage, zero runtime dependencies. `packages/cli` (`nss`) at `0.1.0`: `scan`, `--json`, `docs`,
+duplicate detection — 41 tests, 99% line coverage, `typescript` as its only peer dependency.
+**M11 (docs, the AI skill, examples) is next.**
 
 Two entry points, one store: `src/full.ts` wires in every feature, `src/minimal.ts` wires in
 nothing above level 1, and both call `makeFactory` in `src/store/create.ts`. A feature added to the
@@ -50,4 +52,5 @@ pnpm check   # typecheck + lint + test + build, everything CI runs
 
 Keep this block current at the end of every milestone.
 
-Not built yet: the `nss` CLI. See the milestone table in PLAN.md.
+Not built yet: the docs site, the AI skill, the examples, and the 1.0 hardening pass. See the
+milestone table in PLAN.md.

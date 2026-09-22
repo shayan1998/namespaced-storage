@@ -491,14 +491,15 @@ points.
 
 What is **not** built yet, and is not referred to anywhere above as if it were:
 
-| planned        |                                                           |
-| -------------- | --------------------------------------------------------- |
-| `nss scan` CLI | generates the "what does this app store?" inventory       |
-| async core     | IndexedDB and Redis adapters, on a separate async surface |
+| planned    |                                                           |
+| ---------- | --------------------------------------------------------- |
+| docs site  | plus the AI skill and three worked examples               |
+| async core | IndexedDB and Redis adapters, on a separate async surface |
 
-The companion [`eslint-plugin-namespaced-storage`](packages/eslint-plugin) ships alongside: it bans
-raw `localStorage`, requires literal namespaces, rejects reserved keys, and can keep declarations
-in `*.storage.ts`.
+Two companions ship alongside: [`eslint-plugin-namespaced-storage`](packages/eslint-plugin), which
+bans raw `localStorage`, requires literal namespaces and rejects reserved keys; and
+[`nss`](packages/cli), which reads your source and tells you what the app stores, who owns it, and
+whether two places claim the same namespace.
 
 `owner` and `description` are accepted and stored on the store today, but nothing reads them until
 the CLI lands — set them now and the inventory will be right when it arrives.

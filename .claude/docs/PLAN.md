@@ -292,7 +292,9 @@ namespaced-storage · 7 namespaces across 6 files
 
 `nss scan --json` emits the machine-readable manifest; `nss docs -o docs/storage.md` writes the
 markdown inventory. This catches duplicates **across packages in a monorepo**, which a central object
-literal cannot.
+literal cannot. Both read syntax only — no type checker, no `tsconfig` — so they work on a
+repository that does not compile, and a namespace that is not a literal is reported as a problem
+rather than skipped (ADR-026). Exit code `1` on any problem, so it belongs in CI.
 
 At runtime, a global registry throws `NamespaceConflictError` the moment a duplicate namespace is
 constructed (dev only, `strict: false` to opt out; re-registration with an identical config warns
@@ -516,27 +518,31 @@ expectations, SSR), and a migration recipe from raw storage calls.
 
 Each milestone ends green: tests passing, types building, size budget met.
 
-| #         | Milestone                | Contents                                                                                                                                                                                    |
-| --------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **M0** ✅ | Scaffold                 | pnpm workspace, TS strict, tsup dual ESM/CJS, Vitest + happy-dom, ESLint 9 + Prettier, changesets, GitHub Actions, size-limit                                                               |
-| **M1** ✅ | Walking skeleton         | key encode/decode/validate · web-storage + memory adapters · availability probe + fallback · error taxonomy · `set/get/remove/has/clear/keys/size` → **`0.1.0`, already useful at level 1** |
-| **M2** ✅ | Codecs                   | smart envelope · builtin codecs (Date, Map, Set, BigInt, RegExp, undefined) · `__nss` collision rule · legacy-raw-value compatibility                                                       |
-| **M3** ✅ | Typing                   | `defaults` inference (primary path) · mini `t.*` · Standard Schema v1 adapter · combining both · `onInvalid` policy                                                                         |
-| **M4** ✅ | Time                     | `timestamps` · TTL with lazy expiry on read · `meta()` · `ttl()`                                                                                                                            |
-| **M5** ✅ | Reactivity & composition | cross-tab `storage` event filtered by prefix · in-process emitter · `subscribe` · `child()`                                                                                                 |
-| **M6** ✅ | Namespace guard          | global registry · `NamespaceConflictError` with both creation sites · HMR tolerance                                                                                                         |
-| **M7** ✅ | Versioning               | `version` + `migrate` · per-namespace `__nss:meta` key · `MigrationError`                                                                                                                   |
-| **M8** ✅ | Devtools                 | `inspect()` · `export()` · `globalThis.__NAMESPACED_STORAGE__` (dev builds only)                                                                                                            |
-| **M9** ✅ | ESLint plugin            | the four rules, both configs, rule tests                                                                                                                                                    |
-| **M10**   | `nss` CLI                | `scan` (inventory + cross-file duplicate detection) · `--json` manifest · `docs` generator · CI recipe                                                                                      |
-| **M11**   | Docs & DX                | README · docs site · SKILL.md · `llms.txt` · three examples · migration guide                                                                                                               |
-| **M12**   | Harden & ship            | env matrix tests, `publint` + `@arethetypeswrong/cli`, size budget, npm provenance → **`1.0.0`**                                                                                            |
+| #          | Milestone                | Contents                                                                                                                                                                                    |
+| ---------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **M0** ✅  | Scaffold                 | pnpm workspace, TS strict, tsup dual ESM/CJS, Vitest + happy-dom, ESLint 9 + Prettier, changesets, GitHub Actions, size-limit                                                               |
+| **M1** ✅  | Walking skeleton         | key encode/decode/validate · web-storage + memory adapters · availability probe + fallback · error taxonomy · `set/get/remove/has/clear/keys/size` → **`0.1.0`, already useful at level 1** |
+| **M2** ✅  | Codecs                   | smart envelope · builtin codecs (Date, Map, Set, BigInt, RegExp, undefined) · `__nss` collision rule · legacy-raw-value compatibility                                                       |
+| **M3** ✅  | Typing                   | `defaults` inference (primary path) · mini `t.*` · Standard Schema v1 adapter · combining both · `onInvalid` policy                                                                         |
+| **M4** ✅  | Time                     | `timestamps` · TTL with lazy expiry on read · `meta()` · `ttl()`                                                                                                                            |
+| **M5** ✅  | Reactivity & composition | cross-tab `storage` event filtered by prefix · in-process emitter · `subscribe` · `child()`                                                                                                 |
+| **M6** ✅  | Namespace guard          | global registry · `NamespaceConflictError` with both creation sites · HMR tolerance                                                                                                         |
+| **M7** ✅  | Versioning               | `version` + `migrate` · per-namespace `__nss:meta` key · `MigrationError`                                                                                                                   |
+| **M8** ✅  | Devtools                 | `inspect()` · `export()` · `globalThis.__NAMESPACED_STORAGE__` (dev builds only)                                                                                                            |
+| **M9** ✅  | ESLint plugin            | the four rules, both configs, rule tests                                                                                                                                                    |
+| **M10** ✅ | `nss` CLI                | `scan` (inventory + cross-file duplicate detection) · `--json` manifest · `docs` generator · CI recipe                                                                                      |
+| **M11**    | Docs & DX                | README · docs site · SKILL.md · `llms.txt` · three examples · migration guide                                                                                                               |
+| **M12**    | Harden & ship            | env matrix tests, `publint` + `@arethetypeswrong/cli`, size budget, npm provenance → **`1.0.0`**                                                                                            |
 
 ### Shipped so far
 
-**M0–M9 → `0.1.0`.** `packages/core`: 283 tests, 99.8% lines, 6.33 kB minified+brotli against a
-6.4 kB budget. `packages/eslint-plugin`: 69 tests, 100% lines, zero runtime dependencies. `publint`
-and `attw` clean on both packages, on both ESM and CJS entry points.
+**M0–M10 → `0.1.0`.** `packages/core`: 299 tests, 99.8% lines, 6.41 kB minified+brotli against a
+6.5 kB budget, and 5.17 kB from `namespaced-storage/minimal`. `packages/eslint-plugin`: 69 tests,
+100% lines, zero runtime dependencies. `packages/cli`: 41 tests, 99% lines, `typescript` as its
+only (peer) dependency. `publint` and `attw` clean, on both ESM and CJS entry points.
+
+**Before publishing:** the npm name `nss` is almost certainly taken — check it, and pick the
+scoped name (`@namespaced-storage/cli`) if it is. The binary stays `nss` either way.
 
 Two things **M1** surfaced that were not in the plan:
 

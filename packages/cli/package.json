@@ -1,0 +1,58 @@
+{
+  "name": "nss",
+  "version": "0.1.0",
+  "description": "Inventory every namespaced-storage namespace in a codebase: what it stores, who owns it, and whether two places claim the same name.",
+  "keywords": [
+    "namespaced-storage",
+    "localstorage",
+    "cli",
+    "inventory",
+    "codemod"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "nss": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "coverage": "vitest run --coverage",
+    "prepublishOnly": "pnpm build && publint"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@vitest/coverage-v8": "^2.1.8",
+    "publint": "^0.2.12",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shayanmirzaei/namespaced-storage.git",
+    "directory": "packages/cli"
+  }
+}

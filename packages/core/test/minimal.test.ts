@@ -106,9 +106,9 @@ describe('what it refuses rather than ignores', () => {
   });
 
   it('refuses before it writes anything', () => {
-    expect(() => createLocalStorage('basket', { version: 2, migrate: (p: unknown) => p } as never)).toThrow(
-      InvalidOptionsError,
-    );
+    expect(() =>
+      createLocalStorage('basket', { version: 2, migrate: (p: unknown) => p } as never),
+    ).toThrow(InvalidOptionsError);
 
     expect(localStorage.length).toBe(0);
     // The failed construction must not have claimed the namespace either.

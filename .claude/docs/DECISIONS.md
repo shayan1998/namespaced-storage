@@ -657,6 +657,45 @@ one seam is enough.
 breaking for the people who adopted it, and that is a decision better made with download numbers
 than with a principle.
 
+## ADR-026 — The inventory reads syntax, and only what it can prove
+
+**Status:** accepted · **Date:** 2026-09-22 · **Implements:** M10 · **Extends:** ADR-011, ADR-024
+
+`nss scan` exists because there is no registry file (ADR-011). It has to reconstruct one from the
+source, and the question that decides everything else is how much of the program it is willing to
+understand.
+
+**Accepted: one `ts.createSourceFile` per file, and nothing more.** No type checker, no `tsconfig`
+discovery, no module resolution, no evaluation.
+
+- It works on a repository that does not compile, which is exactly when someone is most likely to
+  ask what the app stores.
+- It is fast enough to be a CI step without anyone thinking about it: a pre-filter skips any file
+  whose text never mentions the package, so most of a repository is a string search.
+- `typescript` is a **peer** dependency. Every project this tool is for already has the compiler;
+  shipping a second copy to parse a handful of files would be the largest thing in the package.
+
+**It reports only what it can prove.** As in the lint rules (ADR-024), a call counts when its
+callee resolves to an import from `namespaced-storage` — named, renamed, or through a namespace
+import — and `namespaced-storage/minimal` counts as the same package. A namespace that is not a
+string literal is not skipped in silence: it is a **problem**, with a file and a line, because a
+namespace no tool can read is a namespace no tool can protect.
+
+**Duplicate identity is `backend::namespace`,** the same rule the runtime registry uses (ADR-020):
+`local` and `session` may each hold an `auth`. A duplicate exits `1`, which is the point — it
+catches the collision the runtime guard cannot see until both modules happen to load in the same
+page, and that a central registry file could never catch across packages of a monorepo.
+
+**Types are rendered in the words a reader would use.** `defaults` gives `number`, `string`,
+`Date`, `array`; an `as BasketItem[]` annotation wins over the `[]` it applies to, because the
+developer wrote it for exactly this audience. A `t.*` schema is read structurally —
+`t.array(t.string()).optional()` becomes `string[] | undefined`, `t.enum(['light','dark'])` becomes
+`'light' | 'dark'` — and a validator from another library falls back to its outermost builder name
+rather than guessing. Where a key is declared twice, the schema names it: it knows more.
+
+**The whole CLI is a function** — `run(argv, io)` returning an exit code — so the tests drive it
+without spawning a process, and `scanSource(file, source)` needs no filesystem at all.
+
 ---
 
 ## Open questions
