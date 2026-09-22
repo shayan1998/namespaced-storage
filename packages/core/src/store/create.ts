@@ -2,6 +2,8 @@ import { createMemoryAdapter, createNoopAdapter } from '../adapters/memory.js';
 import type { SyncAdapter } from '../adapters/types.js';
 import { createWebStorageAdapter } from '../adapters/web-storage.js';
 import { type NamespacedStorageError, StorageUnavailableError } from '../errors.js';
+import { registerDevStore } from '../features/inspect.js';
+import { assertMigrationOptions, runMigration } from '../features/migrate.js';
 import { assertValidSegment } from '../namespace/key.js';
 import { registerNamespace } from '../namespace/registry.js';
 import type { DefaultedKeys, StoreValues } from '../typing/infer.js';
@@ -69,6 +71,7 @@ function create(
   // Built first so that a malformed option — a bad ttl, a default contradicting its schema —
   // reports its own specific problem rather than a namespace conflict it tripped over on the way.
   const store = createSyncStore({ segments, adapter, available, options, typing });
+  assertMigrationOptions(options, store.namespace);
 
   registerNamespace({
     path: segments.join(options.separator ?? ':'),
@@ -78,6 +81,18 @@ function create(
     strict: options.strict,
     report: (error) => reportOnce(options.onError, error),
   });
+
+  // Last, because it is the first thing here that writes: everything above validates, and a
+  // namespace claimed twice must be caught before its data is migrated twice (ADR-022).
+  runMigration({
+    segments,
+    adapter,
+    options,
+    store,
+    report: (error) => reportOnce(options.onError, error),
+  });
+
+  registerDevStore(store);
 
   return store;
 }

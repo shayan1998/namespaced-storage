@@ -484,6 +484,96 @@ every default against its schema — and only then is the namespace registered. 
 mistake is the actionable one; the conflict is about the environment and can wait. Construction has
 no side effects, so a store built and then discarded costs nothing.
 
+## ADR-022 — A migration is one function over the whole namespace, run once at construction
+
+**Status:** accepted · **Date:** 2026-09-22 · **Implements:** M7
+
+The plan reserved `basket:__nss:meta` for a namespace version and sketched
+`migrate(old, fromVersion)`, but left open what `old` is, when the function runs, and what happens
+when it fails. Building it forced all three.
+
+**Accepted:**
+
+- **The unit is the namespace, not the key.** There is one version per namespace, so a migration
+  receives one snapshot of every readable key — `{ count: 3, token: 'x' }` — and returns the shape
+  the namespace should have. Per-key versions would mean a stamp on every entry, which is a tax on
+  every write for a feature used a handful of times in a namespace's life.
+- **It runs eagerly, at construction, synchronously.** A lazy per-key migration cannot answer "has
+  this namespace been migrated?" without reading every key anyway, and the sync API may not await
+  (ADR-006). A migration returning a promise is a `MigrationError`, not a silent no-op.
+- **It runs after the store is built and the namespace is registered.** Construction validates
+  before it has side effects (ADR-021), and a duplicate namespace is found before anything is
+  rewritten — two stores over one namespace must not migrate the same data twice.
+- **Only keys that changed are written back.** The snapshot is compared by reference
+  (`Object.is`), so a migration that copies untouched values keeps their existing timestamps and
+  TTL rather than resetting them. Keys the migration dropped are removed; keys it could not read
+  (corrupt, and so absent from the snapshot) are left exactly where they are rather than deleted by
+  omission.
+- **Returning nothing means "I mutated the snapshot".** `(previous) => { delete previous.token }`
+  is the shortest correct migration, and requiring a return would make that silently wipe the
+  namespace. A return of anything that is not a plain object — an array, `null`, a primitive, a
+  promise — is a `MigrationError`, because every one of those is a mistake rather than an intent.
+
+**Failure is loud and leaves the stamp alone.** If the migration throws, returns the wrong shape, or
+writes a value its own schema rejects, the version is not advanced and `MigrationError` is both
+reported and thrown. The next construction therefore retries from the same version. Sync web
+storage has no transaction, so a migration interrupted mid-write (a quota failure on the third of
+five keys) replays over partly-new data: migrations should be written to tolerate that, and the
+README says so.
+
+**A version going backwards is reported, never enforced.** Storage stamped v3 read by code
+declaring v2 is a rolled-back deploy, not a corruption. Throwing would white-screen everyone whose
+data is ahead of the code they just received; instead `onError` gets a `MigrationError`, the data
+and the stamp are left untouched, and rolling forward again behaves as if nothing happened. The
+values themselves still face `onInvalid`, which is the mechanism already designed for data in a
+shape the code does not expect.
+
+**Level 1 pays nothing.** With no `version` (or `version: 1`) there is no stamp, no read at
+construction and no reserved key — the whole feature is one early return. A `migrate` that could
+never run, because `version` is absent or 1, is an `InvalidOptionsError` rather than dead code that
+quietly does nothing (ADR-021).
+
+**Children are views, not namespaces.** `basket.child('ui')` shares its parent's options, so
+stamping it would write `basket:ui:__nss:meta` and migrate the same data a second time under a
+narrower prefix. Only the root store constructed by a factory runs migrations — the same rule
+ADR-020 already applies to the conflict guard.
+
+## ADR-023 — Devtools ship in production; the global hook does not
+
+**Status:** accepted · **Date:** 2026-09-22 · **Closes:** open question 3
+
+The plan said `inspect()` would be "stripped in prod builds". Building it made that promise look
+worse than the problem it was solving.
+
+**Stripping cannot be done honestly here.** A bundler only removes the code if the guard is the
+literal `process.env.NODE_ENV`, which throws `ReferenceError` in a browser that loads the package
+without a bundler. Writing it safely — `typeof process === 'undefined' || …` — leaves a runtime
+check no minifier can fold, so nothing is removed and we would have paid for the guard as well.
+The only real way to strip is to publish separate development and production files, which doubles
+the packaging surface that `publint` and `attw` have to stay clean across.
+
+**Accepted:** `inspect()` and `export()` are ordinary methods, present in every build.
+
+- The case for stripping was size. The measured cost is 0.41 kB, and unlike TTL or codecs this is
+  not a level 2 feature level 1 is subsidising: "nobody can say what this app persists" is the
+  level 1 problem, and `inspect()` is the level 1 answer to it. It is, though, the milestone that
+  pushed the core past its 6 kB target — see the modularity note in PLAN §11.
+- The case against stripping is that production is where inspection is worth most. Asking someone
+  to paste `basket.inspect()` into a console is the shortest path from a bug report to what is
+  actually stored, and a build where that is a no-op is the one build you cannot debug.
+- `inspect()` renders through the host's `console.table` instead of drawing its own box. The
+  browser and Node both already have a table renderer, theirs folds objects open and ours would
+  not, and the bytes we do not spend on box drawing are most of why the cost is 0.32 kB.
+
+**`globalThis.__NAMESPACED_STORAGE__` is development-only**, for reasons that are about behaviour
+rather than bytes: it holds a reference to every store on the page, which keeps them alive, and it
+hands any script in the page a directory of everything the app persists. The check is the existing
+runtime `isProduction()` — no minifier needs to understand it, because nothing is being removed.
+
+`export()` returns what `get()` returns, key by key: expired and reserved keys are absent, and a
+value failing its schema follows `onInvalid` exactly as a read would. A snapshot that disagreed
+with the store it came from would be a worse debugging tool than no snapshot.
+
 ---
 
 ## Open questions
@@ -495,6 +585,7 @@ no side effects, so a store built and then discarded costs nothing.
 - Should a `t.date()` key coerce a stored ISO string into a `Date`? It would smooth migration off
   raw storage, but silent coercion is hard to reason about. Currently it fails validation and
   `onInvalid` applies.
-- `inspect()` in production builds — strip entirely via `NODE_ENV`, or keep behind a flag?
+- ~~`inspect()` in production builds~~ — settled in M8: it ships everywhere, and only the global
+  hook is development-only. See ADR-023.
 - Should `nss scan` also detect _keys_ (not just namespaces) statically? Keys come from `defaults`
   and `schema` object literals, so it is feasible; the risk is false negatives with computed keys.

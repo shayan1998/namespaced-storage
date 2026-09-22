@@ -26,7 +26,7 @@ basket.clear(); // clears basket:* and nothing else
 npm install namespaced-storage
 ```
 
-5.14 kB minified + brotlied for namespacing and codecs, 5.76 kB if you also import `t.*`.
+6.33 kB minified + brotlied, 6.95 kB if you also import `t.*`.
 Zero runtime dependencies. Ships ESM and CJS with types for both.
 
 ## Why
@@ -190,6 +190,52 @@ store.meta('count'); // { createdAt: 1758297600000, updatedAt: 1758297600000 }
 Off by default: it turns every value into an envelope, and an update costs one extra read to keep
 the original `createdAt`.
 
+### Changing the shape of stored data
+
+Raise `version` and give a `migrate`, and the namespace is brought forward once, at construction,
+before the first read:
+
+```ts
+export const basket = createLocalStorage('basket', {
+  defaults: { items: [] as Item[], total: 0 },
+  version: 2,
+  migrate: (previous, fromVersion) => {
+    if (fromVersion < 2) {
+      const items = (previous.cart as Item[]) ?? [];
+      return { items, total: items.length };
+    }
+    return previous;
+  },
+});
+```
+
+`previous` is every readable key in the namespace, decoded but **not** validated — old data
+reaches the migration as it actually is, not as the current schema wishes it were. Return the shape
+the namespace should now have, or return nothing and edit `previous` in place:
+
+```ts
+migrate: (previous) => {
+  delete previous.legacyToken;
+};
+```
+
+Keys your result does not carry are removed. Keys it carries across untouched are left alone,
+timestamps and TTL included — only what actually changed is rewritten.
+
+The version lives in one reserved key per namespace, `basket:__nss:meta`, which is written only
+once `version` passes 1: a store that never versions never pays a read, a write or a byte for it.
+Data already in storage when you first set a version is read as version 1.
+
+**When it goes wrong.** A migration that throws, returns something that is not an object, or
+writes a value its own schema rejects throws `MigrationError` and leaves the version where it was,
+so the next load tries again. Sync storage has no transaction, so a migration interrupted part-way
+— a quota failure on the third of five keys — replays over partly-new data: write migrations that
+tolerate being run twice.
+
+Storage stamped with a version _newer_ than the code declares is a rolled-back deploy, not a
+corruption. It is reported through `onError` and otherwise left alone; nothing is thrown and
+nothing is downgraded.
+
 ### Catching a duplicate namespace
 
 Two places creating the same namespace is usually an accident, and a silent one:
@@ -229,6 +275,45 @@ emitted separately. `oldValue` is free here and is never written to disk.
 
 A subscriber that throws is reported through `onError` and skipped — it cannot stop the other
 subscribers or the write. A value that fails to decode arrives as `undefined` and is reported.
+
+### Seeing what is stored
+
+```ts
+basket.inspect();
+```
+
+```
+namespaced-storage · basket (localStorage) · 3 keys · 148 B
+┌────────────┬────────────────────────────┬────────┬───────┬─────────┐
+│ (index)    │ value                      │ type   │ size  │ expires │
+├────────────┼────────────────────────────┼────────┼───────┼─────────┤
+│ count      │ 10                         │ number │ 4 B   │ —       │
+│ items      │ [ { id: 'sku-1', qty: 2 } ] │ array  │ 50 B  │ —       │
+│ lastOpened │ 2026-09-19T14:00:00.000Z   │ date   │ 94 B  │ —       │
+└────────────┴────────────────────────────┴────────┴───────┴─────────┘
+```
+
+The rows go to the host's own `console.table`, so objects stay explorable rather than being
+flattened to `[object Object]`.
+
+```ts
+basket.export(); // { count: 10, items: [...], lastOpened: Date }
+```
+
+`export()` is the same data without the console: the values `get()` would return, key by key,
+with expired and internal keys left out. Useful in a bug report, and small enough to keep in
+production.
+
+Both ship in every build. In development — anything but `NODE_ENV=production` — every store also
+registers itself on a global, so the console can reach a store that nothing exported to it:
+
+```js
+__NAMESPACED_STORAGE__.stores.basket.get('count');
+__NAMESPACED_STORAGE__.inspect(); // every namespace on the page
+```
+
+That one is development-only on purpose: it holds every store alive, and hands any script on the
+page a directory of everything the app persists.
 
 ### Testing
 
@@ -335,6 +420,8 @@ createLocalStorage('basket', { onCorrupt: 'throw' }); // fail fast in tests
 | `setItem` · `getItem` · `removeItem`  | native-style aliases for mechanical migration                     |
 | `trySet(key, value)`                  | `{ ok: true } \| { ok: false, error }`                            |
 | `child(segment)`                      | a nested namespace, untyped                                       |
+| `inspect()`                           | one `console.table` of the namespace                              |
+| `export()`                            | plain snapshot; the values `get()` returns                        |
 | `namespace` · `adapter` · `available` |                                                                   |
 
 ### Options
@@ -346,6 +433,8 @@ createLocalStorage('basket', { onCorrupt: 'throw' }); // fail fast in tests
 | `fallback`              | `'memory'` | `'memory'` · `'throw'` · `'noop'`                            |
 | `onCorrupt`             | `'ignore'` | unparseable value: `'ignore'` · `'remove'` · `'throw'`       |
 | `onInvalid`             | `'ignore'` | value fails its schema: `'ignore'` · `'remove'` · `'throw'`  |
+| `version`               | `1`        | the shape this build expects; above 1 it is recorded on disk |
+| `migrate`               | —          | runs once when stored data is older than `version`           |
 | `ttl`                   | —          | default lifetime in ms for every key; per-call `ttl` wins    |
 | `timestamps`            | `false`    | record `createdAt` / `updatedAt`, readable via `meta()`      |
 | `strict`                | —          | conflict guard; throws outside production, reports inside it |
@@ -359,7 +448,8 @@ createLocalStorage('basket', { onCorrupt: 'throw' }); // fail fast in tests
 All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace` and `.key`:
 `StorageQuotaError`, `StorageUnavailableError`, `DecodeError`, `SerializationError`,
 `ValidationError` (carries `.issues`), `SubscriberError`, `NamespaceConflictError`,
-`InvalidNamespaceError`, `InvalidKeyError`, `InvalidOptionsError`.
+`InvalidNamespaceError`, `InvalidKeyError`, `InvalidOptionsError`, `MigrationError` (carries
+`.fromVersion` and `.toVersion`).
 
 ## Constraints
 
@@ -369,19 +459,17 @@ All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace
 
 ## Status
 
-`0.1.0` is usable today, and everything documented above is implemented and tested — 221 tests,
+`0.1.0` is usable today, and everything documented above is implemented and tested — 283 tests,
 99.8% line coverage, `publint` and `@arethetypeswrong/cli` clean on both the ESM and CJS entry
 points.
 
 What is **not** built yet, and is not referred to anywhere above as if it were:
 
-| planned               |                                                           |
-| --------------------- | --------------------------------------------------------- |
-| `version` + `migrate` | moving stored data to a new shape without losing it       |
-| devtools              | `inspect()`, `export()`, a global hook in dev builds      |
-| ESLint plugin         | bans raw `localStorage` access outside `*.storage.ts`     |
-| `nss scan` CLI        | generates the "what does this app store?" inventory       |
-| async core            | IndexedDB and Redis adapters, on a separate async surface |
+| planned        |                                                           |
+| -------------- | --------------------------------------------------------- |
+| ESLint plugin  | bans raw `localStorage` access outside `*.storage.ts`     |
+| `nss scan` CLI | generates the "what does this app store?" inventory       |
+| async core     | IndexedDB and Redis adapters, on a separate async surface |
 
 `owner` and `description` are accepted and stored on the store today, but nothing reads them until
 the CLI lands — set them now and the inventory will be right when it arrives.

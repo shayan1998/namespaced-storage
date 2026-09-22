@@ -10,6 +10,7 @@ export type {
   EntryMeta,
   FallbackPolicy,
   InvalidPolicy,
+  MigrateFn,
   SetOptions,
   StoreOptions,
   SyncNamespacedStore,
@@ -24,6 +25,7 @@ export {
   InvalidKeyError,
   InvalidNamespaceError,
   InvalidOptionsError,
+  MigrationError,
   NamespaceConflictError,
   NamespacedStorageError,
   SerializationError,
@@ -33,6 +35,8 @@ export {
   ValidationError,
   type ErrorCode,
 } from './errors.js';
+
+export type { Devtools } from './features/inspect.js';
 
 export type { Adapter, AsyncAdapter, RawChange, SyncAdapter } from './adapters/types.js';
 export { createMemoryAdapter, createNoopAdapter, resetMemoryAdapters } from './adapters/memory.js';

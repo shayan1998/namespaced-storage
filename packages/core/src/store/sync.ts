@@ -1,6 +1,7 @@
 import type { SyncAdapter } from '../adapters/types.js';
 import { type EnvelopeMeta, decode, encode, isExpired, peekMeta } from '../codec/envelope.js';
 import { approximateBytes, formatBytes } from '../codec/size.js';
+import { printInspection } from '../features/inspect.js';
 import {
   DecodeError,
   InvalidOptionsError,
@@ -312,6 +313,14 @@ export function createSyncStore(context: StoreContext): SyncNamespacedStore {
           source: change.source,
         });
       });
+    },
+
+    export() {
+      return Object.fromEntries(store.entries());
+    },
+
+    inspect() {
+      printInspection(store, (key) => approximateBytes(adapter.getItem(codec.encode(key)) ?? ''));
     },
 
     child(segment) {

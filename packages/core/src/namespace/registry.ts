@@ -1,3 +1,4 @@
+import { isProduction } from '../env.js';
 import { NamespaceConflictError, type NamespacedStorageError } from '../errors.js';
 
 /**
@@ -22,12 +23,6 @@ function registry(): Registry {
 /** Test and HMR helper — forgets every registered namespace. */
 export function resetNamespaceRegistry(): void {
   registry().clear();
-}
-
-function isProduction(): boolean {
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
-    ?.env;
-  return env?.NODE_ENV === 'production';
 }
 
 /** Stack frames belonging to this package, which sit between the caller and the capture. */

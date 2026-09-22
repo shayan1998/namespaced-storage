@@ -102,6 +102,27 @@ export class ValidationError extends NamespacedStorageError {
   }
 }
 
+/**
+ * A migration threw, returned a shape that is not a namespace snapshot, or could not be written.
+ * The version stamp is left where it was, so the next construction tries again (ADR-022).
+ */
+export class MigrationError extends NamespacedStorageError {
+  /** The version the data is stamped with, which the failed migration was reading from. */
+  readonly fromVersion: number | undefined;
+  /** The version the store declares, which the failed migration was moving towards. */
+  readonly toVersion: number;
+
+  constructor(
+    message: string,
+    versions: { from?: number | undefined; to: number },
+    context?: ErrorContext,
+  ) {
+    super('MIGRATION', message, context);
+    this.fromVersion = versions.from;
+    this.toVersion = versions.to;
+  }
+}
+
 /** A change-event subscriber threw. Reported, never rethrown into the event loop. */
 export class SubscriberError extends NamespacedStorageError {
   constructor(message: string, context?: ErrorContext) {
