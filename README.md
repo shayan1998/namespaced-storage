@@ -1,24 +1,37 @@
+[![npm version](https://img.shields.io/npm/v/namespaced-storage.svg)](https://www.npmjs.com/package/namespaced-storage)
+[![license](https://img.shields.io/npm/l/namespaced-storage.svg)](LICENSE)
+[![types](https://img.shields.io/npm/types/namespaced-storage.svg)](https://www.npmjs.com/package/namespaced-storage)
+
 # namespaced-storage
 
-Namespaced, SSR-safe, zero-dependency wrapper over `localStorage` and `sessionStorage`.
-
-In a long-lived codebase, browser storage is a global mutable namespace with no owner and no
-schema. Team A writes `token`; team B overwrites it. Somebody calls `localStorage.clear()` and takes
-out everyone's data. Nobody can say what the app persists without grepping for `setItem`.
+Namespaced, type-safe, SSR-safe `localStorage` / `sessionStorage`. Zero dependencies.
 
 ```ts
 import { createLocalStorage } from 'namespaced-storage';
 
-export const basket = createLocalStorage('basket');
+const basket = createLocalStorage('basket');
 
-basket.set('count', 10); // writes the key "basket:count"
+basket.set('count', 10); // writes "basket:count"
 basket.get('count'); // 10 — parsed back, not a string
-basket.clear(); // clears basket:* and nothing else
+basket.clear(); // clears basket:* only
 ```
 
-> **Discipline, not security.** Any code can construct a second instance of the same namespace, and
-> raw `localStorage.setItem('basket:count', …)` always works. What this removes is _accidental_
-> collision, _accidental_ `clear()`, and silent type drift.
+## Why
+
+Raw storage is one global namespace: two features can write the same key, `clear()` wipes
+everything, and every value is hand-`JSON.parse`d — or crashes when it isn't.
+
+|                | raw storage            | namespaced-storage            |
+| -------------- | ---------------------- | ----------------------------- |
+| key collisions | silent overwrite       | impossible between namespaces |
+| `clear()`      | wipes the whole origin | wipes one namespace           |
+| values         | strings only           | any JSON value, round-tripped |
+| SSR / no DOM   | throws                 | falls back to memory          |
+| quota exceeded | raw `DOMException`     | typed error, or `trySet()`    |
+| corrupt data   | throws mid-render      | reads as `undefined`          |
+
+> Discipline, not security — `localStorage.setItem('basket:count', …)` still works. This removes
+> _accidental_ collisions, _accidental_ `clear()`, and silent type drift.
 
 ## Install
 
@@ -26,21 +39,8 @@ basket.clear(); // clears basket:* and nothing else
 npm install namespaced-storage
 ```
 
-6.41 kB minified + brotlied, 7.01 kB if you also import `t.*`, **5.17 kB** from
-`namespaced-storage/minimal`.
-Zero runtime dependencies. Ships ESM and CJS with types for both.
-
-## Why
-
-|                               | raw storage                       | namespaced-storage                           |
-| ----------------------------- | --------------------------------- | -------------------------------------------- |
-| key collisions                | silent overwrite                  | impossible between namespaces                |
-| `clear()`                     | wipes the whole origin            | wipes one namespace                          |
-| values                        | strings only, manual `JSON.parse` | any JSON value, round-tripped                |
-| SSR                           | `localStorage is not defined`     | works, falls back to memory                  |
-| private mode / blocked iframe | throws                            | works, falls back to memory                  |
-| quota exceeded                | raw `DOMException`                | typed `StorageQuotaError`, or `trySet()`     |
-| corrupt value                 | `JSON.parse` throws mid-render    | reads as `undefined`, reported via `onError` |
+6.4 kB min+brotli · **5.2 kB** from `namespaced-storage/minimal` · zero runtime deps · ESM + CJS ·
+types included
 
 ## Usage
 
@@ -54,147 +54,75 @@ basket.set('token', 'a');
 auth.set('token', 'b'); // different key, no collision
 ```
 
-Declare each store in a `*.storage.ts` file next to the feature that owns it, and export it. There
-is no central registry file to keep in sync.
-
-There are three factories. They take identical options and return identical stores — only the
-backend differs:
+Declare each store in a `*.storage.ts` file next to the feature that owns it — there's no central
+registry to keep in sync.
 
 ```ts
-createLocalStorage('basket'); // localStorage — survives a browser restart
+createLocalStorage('basket'); // localStorage — survives a restart
 createSessionStorage('auth'); // sessionStorage — dies with the tab
-createMemoryStorage('fixture'); // in-process Map — tests, Node, SSR
+createMemoryStorage('fixture'); // in-memory — tests, Node, SSR
 ```
 
 ### Values
 
-JSON-native values are stored exactly as `JSON.stringify` would write them, so existing raw data
-stays readable and anything else that reads the key still works.
-
 ```ts
 basket.set('items', [{ id: 'sku-1', qty: 2 }]);
 basket.get('items'); // [{ id: 'sku-1', qty: 2 }]
-basket.get<number>('count');
-
 basket.set('count', undefined); // same as remove('count')
 ```
 
-```js
-// what is actually in localStorage
-'basket:items'; // [{"id":"sku-1","qty":2}]   ← plain, exactly as before
-```
-
-Types JSON cannot represent survive too — at any depth, not just the top level:
+Values round-trip through plain JSON, plus `Date`, `Map`, `Set`, `BigInt`, `RegExp`, `NaN` and
+`±Infinity` at any depth — only the keys that need it pay for the extra bytes.
 
 ```ts
-basket.set('state', {
-  updatedAt: new Date(),
-  tags: new Set(['sale']),
-  byId: new Map([['sku-1', { addedAt: new Date() }]]),
-  ratio: Infinity,
-});
-
-const state = basket.get('state');
-state.updatedAt; // a real Date
-state.byId.get('sku-1').addedAt; // a real Date, two levels down
-state.ratio; // Infinity — JSON.stringify would have made this null
+basket.set('updatedAt', new Date());
+basket.get('updatedAt'); // a real Date back
 ```
-
-Supported: `Date`, `Map`, `Set`, `BigInt`, `RegExp`, `NaN`, `±Infinity`, and nested `undefined`
-(which plain JSON drops). Only keys that need it pay for the extra bytes — everything else stays on
-the plain path.
 
 ### Typed keys and values
 
-Pass a plain `defaults` object. Types come from it, and so does the fallback when a key has never
-been written:
-
 ```ts
 export const basket = createLocalStorage('basket', {
-  defaults: { count: 0, items: [] as BasketItem[], lastOpened: new Date() },
+  defaults: { count: 0, items: [] as BasketItem[] },
 });
 
-basket.get('count'); // number — not number | undefined, it has a default
-basket.get('lastOpened'); // Date
+basket.get('count'); // number — not number | undefined
 basket.set('count', 'ten'); // ✗ compile error
-basket.set('cout', 1); // ✗ compile error — key typo caught
 ```
 
-There is no DSL to learn: `defaults` is an ordinary object, and the types are `typeof defaults`.
-Each read returns a **clone**, so mutating what you got back cannot corrupt the fallback.
-
-For keys with no sensible default, or data that must be validated, use `schema`:
+`defaults` is a plain object — no DSL, no schema required. For keys with no sensible default, or
+data that needs validation, use `schema` — the built-in `t.*`, or any
+[Standard Schema](https://standardschema.dev) validator (Zod, Valibot, ArkType):
 
 ```ts
-import { createSessionStorage, t } from 'namespaced-storage';
-
 export const auth = createSessionStorage('auth', {
-  schema: { token: t.string(), scopes: t.array(t.string()).optional() },
+  schema: { token: t.string() },
 });
 
-auth.get('token'); // string | undefined
-auth.set('token', 42); // ✗ compile error, and would throw ValidationError at runtime
+auth.set('token', 42); // ✗ compile error, throws ValidationError at runtime
 ```
-
-Any [Standard Schema](https://standardschema.dev) validator works instead — Zod 3.24+, Valibot,
-ArkType, Effect Schema — with **no peer dependency** and nothing extra in your bundle if you skip it:
-
-```ts
-schema: {
-  token: z.string().min(10);
-}
-```
-
-`defaults` and `schema` can declare the same key: the schema validates, the default is the
-fallback. A default that contradicts its own schema is rejected at construction.
-
-```ts
-const ui = createLocalStorage('ui', {
-  defaults: { mode: 'light' },
-  schema: { mode: t.enum(['light', 'dark']) },
-});
-ui.get('mode'); // 'light' | 'dark'
-```
-
-Writes always validate and throw `ValidationError`. Reads follow `onInvalid`
-(`'ignore'` by default, falling back to the default value) so stale data never crashes a render.
-
-Built in: `t.string` `t.number` `t.boolean` `t.bigint` `t.date` `t.literal` `t.enum` `t.array`
-`t.object` `t.record` `t.union` `t.unknown`, each with `.optional()` and `.nullable()`.
 
 ### Expiry
 
 ```ts
 auth.set('token', jwt, { ttl: 15 * 60_000 }); // 15 minutes
-auth.ttl('token'); // 899_431 — ms remaining, or null
-
-// 16 minutes later
-auth.get('token'); // undefined, and the dead entry is collected
-auth.has('token'); // false
+auth.ttl('token'); // ms remaining, or null
+auth.get('token'); // undefined once expired — checked on access, no timer
 ```
 
-Set `ttl` on the store to give every key the same lifetime; a per-call `ttl` overrides it.
-Expiry is checked on access — there is no timer, so nothing depends on the tab staying open.
-`get` and `has` collect an expired entry as they pass it; `keys()`, `size` and `entries()` hide
-it but never write.
-
-A key with a default falls back to that default once it expires.
-
-### Timestamps
+<details>
+<summary><b>Timestamps</b></summary>
 
 ```ts
 const store = createLocalStorage('s', { timestamps: true });
 store.set('count', 1);
-store.meta('count'); // { createdAt: 1758297600000, updatedAt: 1758297600000 }
+store.meta('count'); // { createdAt, updatedAt }
 ```
 
-Off by default: it turns every value into an envelope, and an update costs one extra read to keep
-the original `createdAt`.
+</details>
 
-### Changing the shape of stored data
-
-Raise `version` and give a `migrate`, and the namespace is brought forward once, at construction,
-before the first read:
+<details>
+<summary><b>Migrations</b></summary>
 
 ```ts
 export const basket = createLocalStorage('basket', {
@@ -210,147 +138,69 @@ export const basket = createLocalStorage('basket', {
 });
 ```
 
-`previous` is every readable key in the namespace, decoded but **not** validated — old data
-reaches the migration as it actually is, not as the current schema wishes it were. Return the shape
-the namespace should now have, or return nothing and edit `previous` in place:
+Runs once, before the first read. A migration that throws leaves the version untouched, so the
+next load retries — write migrations that tolerate being run twice.
 
-```ts
-migrate: (previous) => {
-  delete previous.legacyToken;
-};
-```
+</details>
 
-Keys your result does not carry are removed. Keys it carries across untouched are left alone,
-timestamps and TTL included — only what actually changed is rewritten.
-
-The version lives in one reserved key per namespace, `basket:__nss:meta`, which is written only
-once `version` passes 1: a store that never versions never pays a read, a write or a byte for it.
-Data already in storage when you first set a version is read as version 1.
-
-**When it goes wrong.** A migration that throws, returns something that is not an object, or
-writes a value its own schema rejects throws `MigrationError` and leaves the version where it was,
-so the next load tries again. Sync storage has no transaction, so a migration interrupted part-way
-— a quota failure on the third of five keys — replays over partly-new data: write migrations that
-tolerate being run twice.
-
-Storage stamped with a version _newer_ than the code declares is a rolled-back deploy, not a
-corruption. It is reported through `onError` and otherwise left alone; nothing is thrown and
-nothing is downgraded.
-
-### Catching a duplicate namespace
-
-Two places creating the same namespace is usually an accident, and a silent one:
+<details>
+<summary><b>Duplicate-namespace detection</b></summary>
 
 ```
 NamespaceConflictError: Namespace "basket" is already registered on localStorage.
   first:  src/features/basket/basket.storage.ts:6:24
   second: src/legacy/cart/store.ts:11:18
-Import the existing store instead of creating a second one.
-Pass { strict: false } if two instances are intentional.
 ```
 
-It throws outside production and reports through `onError` inside it, so a real bug never
-white-screens a live page. `strict: true` forces the throw anywhere; `strict: false` turns it off.
+Throws outside production, reports via `onError` inside it. Pass `{ strict: false }` if two
+instances are intentional, and call `resetNamespaceRegistry()` in test setup.
 
-`localStorage` and `sessionStorage` may each hold a namespace of the same name, and `child()` is
-never registered.
+</details>
 
-> In tests, call `resetNamespaceRegistry()` in your setup — otherwise re-creating a store between
-> cases trips the guard.
-
-### Reacting to changes
+<details>
+<summary><b>Reacting to changes</b></summary>
 
 ```ts
 const off = basket.subscribe('count', (event) => {
-  event.newValue; // number | undefined — undefined means removed
-  event.oldValue; // the previous value
+  event.newValue; // undefined means removed
   event.source; // 'local' in this tab, 'remote' from another
 });
-
-basket.subscribe((event) => ...); // every key; event.key is null if a tab cleared the area
 off();
 ```
 
-Both tabs are covered: the native `storage` event only fires in _other_ tabs, so local writes are
-emitted separately. `oldValue` is free here and is never written to disk.
+Covers both tabs — the native `storage` event only fires in others.
 
-A subscriber that throws is reported through `onError` and skipped — it cannot stop the other
-subscribers or the write. A value that fails to decode arrives as `undefined` and is reported.
+</details>
 
-### Seeing what is stored
-
-```ts
-basket.inspect();
-```
-
-```
-namespaced-storage · basket (localStorage) · 3 keys · 148 B
-┌────────────┬────────────────────────────┬────────┬───────┬─────────┐
-│ (index)    │ value                      │ type   │ size  │ expires │
-├────────────┼────────────────────────────┼────────┼───────┼─────────┤
-│ count      │ 10                         │ number │ 4 B   │ —       │
-│ items      │ [ { id: 'sku-1', qty: 2 } ] │ array  │ 50 B  │ —       │
-│ lastOpened │ 2026-09-19T14:00:00.000Z   │ date   │ 94 B  │ —       │
-└────────────┴────────────────────────────┴────────┴───────┴─────────┘
-```
-
-The rows go to the host's own `console.table`, so objects stay explorable rather than being
-flattened to `[object Object]`.
+<details>
+<summary><b>Devtools</b></summary>
 
 ```ts
-basket.export(); // { count: 10, items: [...], lastOpened: Date }
+basket.inspect(); // console.table of the namespace
+basket.export(); // plain snapshot — the values get() returns
 ```
 
-`export()` is the same data without the console: the values `get()` would return, key by key,
-with expired and internal keys left out. Useful in a bug report, and small enough to keep in
-production.
+In development, every store also registers on `window.__NAMESPACED_STORAGE__`.
 
-Both ship in every build. In development — anything but `NODE_ENV=production` — every store also
-registers itself on a global, so the console can reach a store that nothing exported to it:
+</details>
 
-```js
-__NAMESPACED_STORAGE__.stores.basket.get('count');
-__NAMESPACED_STORAGE__.inspect(); // every namespace on the page
-```
-
-That one is development-only on purpose: it holds every store alive, and hands any script on the
-page a directory of everything the app persists.
-
-### Paying only for what you use
-
-Everything above is one import away, and a store that only namespaces still carries the typing
-resolver and the migration engine — 1.2 kB it will never run. A second entry point leaves them out:
+<details>
+<summary><b>Minimal build</b></summary>
 
 ```ts
 import { createLocalStorage } from 'namespaced-storage/minimal';
-
-export const basket = createLocalStorage('basket');
 ```
 
-| build                        | size, minified + brotlied |
-| ---------------------------- | ------------------------- |
-| `namespaced-storage`         | 6.41 kB                   |
-| `namespaced-storage` + `t.*` | 7.01 kB                   |
-| `namespaced-storage/minimal` | 5.17 kB                   |
+Keeps namespacing, codecs, TTL, timestamps, events, `child()`, `inspect()`, `export()`. Drops
+`defaults`, `schema`, `version`, `migrate` — and throws if you pass one, naming the entry point
+that supports it.
 
-`/minimal` keeps everything level 1 is: namespacing, codecs, TTL, timestamps, events, `child()`,
-the duplicate-namespace guard, `inspect()` and `export()`. It leaves out `defaults`, `schema`,
-`version` and `migrate` — and **throws** if you pass one, naming the entry point that supports it,
-rather than accepting it and doing nothing.
+</details>
 
-Both entry points are the same store with the same semantics; they differ only in what is wired
-in. Move a namespace up by changing its import.
-
-### Testing
-
-`createMemoryStorage` gives a store with the same API and no browser, which is usually all a unit
-test needs. When you want the real `localStorage` path, run the test file under a DOM environment
-(`happy-dom` or `jsdom`) and reset between cases:
+<details>
+<summary><b>Testing</b></summary>
 
 ```ts
-import { beforeEach } from 'vitest';
-import { resetNamespaceRegistry, resetMemoryAdapters } from 'namespaced-storage';
-
 beforeEach(() => {
   localStorage.clear();
   resetNamespaceRegistry(); // otherwise the conflict guard fires on the 2nd test
@@ -358,48 +208,35 @@ beforeEach(() => {
 });
 ```
 
-`resetNamespaceRegistry()` is the one that bites: a module-level `createLocalStorage('basket')` is
-evaluated once per test file, but a store built inside a test body is rebuilt every case, and the
-second build trips `NamespaceConflictError`. Reset in `beforeEach`, or pass `{ strict: false }` to
-the stores you build inside tests.
+`createMemoryStorage` needs no DOM at all.
 
-### With React
+</details>
 
-`subscribe` is shaped for `useSyncExternalStore`, but `get` returns a fresh object on every call —
-decoding is what makes the exotic types work — so the snapshot must be cached, or React will
-re-render forever:
+<details>
+<summary><b>React</b></summary>
 
 ```ts
-import { useCallback, useRef, useSyncExternalStore } from 'react';
-
-export function useStored<T>(store, key: string, serverValue: T): T {
-  const version = useRef(0);
-  const cache = useRef<{ v: number; value: T } | null>(null);
-
+function useStored<T>(store: Store, key: string, serverValue: T): T {
+  const cache = useRef<{ raw: unknown; value: T }>();
   return useSyncExternalStore(
-    useCallback(
-      (onChange) =>
-        store.subscribe(key, () => {
-          version.current++; // invalidate, then let React pull
-          onChange();
-        }),
-      [store, key],
-    ),
-    useCallback(() => {
-      if (cache.current?.v !== version.current) {
-        cache.current = { v: version.current, value: store.get(key) };
-      }
+    useCallback((onChange) => store.subscribe(key, onChange), [store, key]),
+    () => {
+      const raw = store.getItem(key);
+      if (cache.current?.raw !== raw) cache.current = { raw, value: store.get(key) };
       return cache.current.value;
-    }, [store, key]),
-    () => serverValue, // server snapshot — storage does not exist there
+    },
+    () => serverValue, // server snapshot — storage doesn't exist there
   );
 }
 ```
 
-For a primitive value (`number`, `string`, `boolean`) the caching is unnecessary — `Object.is`
-already holds — and `() => store.get(key)` is a correct snapshot on its own.
+`get()` decodes a fresh object on every call, so the snapshot needs caching or React re-renders
+forever. Skip the cache for primitives (`number`, `string`, `boolean`) — `Object.is` already holds.
 
-### Nested namespaces
+</details>
+
+<details>
+<summary><b>Nested namespaces</b></summary>
 
 ```ts
 const ui = basket.child('ui');
@@ -407,11 +244,15 @@ ui.set('collapsed', true); // writes "basket:ui:collapsed"
 basket.clear(); // clears the child too
 ```
 
-### When storage is missing or full
+</details>
+
+<details>
+<summary><b>Fallbacks and corrupt data</b></summary>
 
 ```ts
 const basket = createLocalStorage('basket', {
   fallback: 'memory', // 'memory' (default) | 'throw' | 'noop'
+  onCorrupt: 'remove', // unparseable value: 'ignore' (default) | 'remove' | 'throw'
   onError: (error) => report(error),
 });
 
@@ -421,15 +262,7 @@ const result = basket.trySet('items', huge);
 if (!result.ok) showToast('Could not save'); // result.error is a StorageQuotaError
 ```
 
-### Corrupt data
-
-Reads never throw by default — stale or hand-edited data should not crash a render.
-
-```ts
-createLocalStorage('basket', { onCorrupt: 'ignore' }); // default: undefined + onError
-createLocalStorage('basket', { onCorrupt: 'remove' }); // self-healing
-createLocalStorage('basket', { onCorrupt: 'throw' }); // fail fast in tests
-```
+</details>
 
 ## API
 
@@ -441,79 +274,60 @@ createLocalStorage('basket', { onCorrupt: 'throw' }); // fail fast in tests
 | `clear()`                             | this namespace only                                               |
 | `keys()` · `entries()` · `size`       | namespace-relative, internal keys hidden                          |
 | `subscribe(key?, listener)`           | returns an unsubscribe function                                   |
-| `meta(key)`                           | `{ createdAt?, updatedAt?, expiresAt? }`, or `undefined`          |
-| `ttl(key)`                            | ms remaining, or `null` when it has no expiry                     |
-| `setItem` · `getItem` · `removeItem`  | native-style aliases for mechanical migration                     |
+| `meta(key)` · `ttl(key)`              | timestamps, and ms remaining before expiry                        |
 | `trySet(key, value)`                  | `{ ok: true } \| { ok: false, error }`                            |
 | `child(segment)`                      | a nested namespace, untyped                                       |
-| `inspect()`                           | one `console.table` of the namespace                              |
-| `export()`                            | plain snapshot; the values `get()` returns                        |
+| `inspect()` · `export()`              | `console.table`, or a plain snapshot                              |
 | `namespace` · `adapter` · `available` |                                                                   |
 
-### Options
+<details>
+<summary>Options</summary>
 
-| option                  | default    |                                                              |
-| ----------------------- | ---------- | ------------------------------------------------------------ |
-| `defaults`              | —          | plain object; declares the keys, their types and fallbacks   |
-| `schema`                | —          | `t.*` or any Standard Schema validator, per key              |
-| `fallback`              | `'memory'` | `'memory'` · `'throw'` · `'noop'`                            |
-| `onCorrupt`             | `'ignore'` | unparseable value: `'ignore'` · `'remove'` · `'throw'`       |
-| `onInvalid`             | `'ignore'` | value fails its schema: `'ignore'` · `'remove'` · `'throw'`  |
-| `version`               | `1`        | the shape this build expects; above 1 it is recorded on disk |
-| `migrate`               | —          | runs once when stored data is older than `version`           |
-| `ttl`                   | —          | default lifetime in ms for every key; per-call `ttl` wins    |
-| `timestamps`            | `false`    | record `createdAt` / `updatedAt`, readable via `meta()`      |
-| `strict`                | —          | conflict guard; throws outside production, reports inside it |
-| `onError`               | —          | called for every error, including ones that are not thrown   |
-| `prefix`                | —          | app-wide prefix: `myapp:basket:count`                        |
-| `separator`             | `':'`      | must not be a character legal inside a namespace             |
-| `owner` · `description` | —          | metadata for the inventory; unused at runtime                |
+| option                  | default    |                                                                      |
+| ----------------------- | ---------- | -------------------------------------------------------------------- |
+| `defaults`              | —          | plain object; declares the keys, their types and fallbacks           |
+| `schema`                | —          | `t.*` or any Standard Schema validator, per key                      |
+| `fallback`              | `'memory'` | `'memory'` · `'throw'` · `'noop'`                                    |
+| `onCorrupt`             | `'ignore'` | unparseable value: `'ignore'` · `'remove'` · `'throw'`               |
+| `onInvalid`             | `'ignore'` | value fails its schema: `'ignore'` · `'remove'` · `'throw'`          |
+| `version` · `migrate`   | —          | the shape this build expects, and how to get there from an older one |
+| `ttl` · `timestamps`    | —          | default lifetime per key; whether to record `createdAt`/`updatedAt`  |
+| `strict`                | —          | conflict guard; throws outside production, reports inside it         |
+| `onError`               | —          | called for every error, including ones that are not thrown           |
+| `prefix` · `separator`  | — · `':'`  | app-wide prefix, and the character joining segments                  |
+| `owner` · `description` | —          | metadata for the `nss` inventory; unused at runtime                  |
 
-### Errors
+</details>
 
-All extend `NamespacedStorageError` and carry a stable `.code`, plus `.namespace` and `.key`:
-`StorageQuotaError`, `StorageUnavailableError`, `DecodeError`, `SerializationError`,
-`ValidationError` (carries `.issues`), `SubscriberError`, `NamespaceConflictError`,
-`InvalidNamespaceError`, `InvalidKeyError`, `InvalidOptionsError`, `MigrationError` (carries
-`.fromVersion` and `.toVersion`).
+## Errors
+
+Every error extends `NamespacedStorageError` and carries a stable `.code`, `.namespace` and `.key`.
+Full list and when each fires: [docs/errors.md](docs/errors.md).
 
 ## Constraints
 
-- Namespace and child segments must match `/^[A-Za-z0-9_.-]+$/`. Keys are unconstrained.
+- Namespace and child segments match `/^[A-Za-z0-9_.-]+$/`. Keys are unconstrained.
 - Keys starting with `__nss` are reserved.
-- ES2020 · Node ≥18 · evergreen browsers · zero runtime dependencies.
+- ES2020 · Node ≥18 · evergreen browsers.
 
-## More
+## Docs
 
-- [Errors](docs/errors.md) — every error, when it fires, and which ones to handle.
-- [Migrating from raw storage](docs/migrating-from-raw-storage.md) — the mechanical port.
-- [The AI skill](packages/core/skill/SKILL.md) — shipped in the package under `skill/`; copy it
-  into your own `.claude/skills/` and your assistant stops inventing an API.
-- [llms.txt](docs/llms.txt) · [all documentation](docs)
+- [Errors](docs/errors.md) · [Migrating from raw storage](docs/migrating-from-raw-storage.md) ·
+  [llms.txt](docs/llms.txt) · [all documentation](docs)
+- [The AI skill](packages/core/skill/SKILL.md) — ships under `skill/`; copy it into
+  `.claude/skills/` and your assistant stops inventing an API.
 - Examples: [vanilla TypeScript](examples/vanilla-ts) · [React](examples/react) ·
   [Next.js and SSR](examples/next-ssr)
 
 ## Status
 
-`1.0.0`. Everything documented above is implemented and tested — 307 tests, 99.8% line coverage,
-`publint` and `@arethetypeswrong/cli` clean for node16 and bundler resolution, on both the ESM and
-CJS entry points. The API, the options, the error taxonomy and the on-disk format are stable;
-changing any of them is a major version.
+`1.0.0` — 307 tests, 99.8% line coverage, clean on `publint` and `@arethetypeswrong/cli`. The API,
+options and on-disk format are stable; changing any of them is a major version.
 
-What is **not** built yet, and is not referred to anywhere above as if it were:
-
-| planned    |                                                           |
-| ---------- | --------------------------------------------------------- |
-| docs site  | plus the AI skill and three worked examples               |
-| async core | IndexedDB and Redis adapters, on a separate async surface |
-
-Two companions ship alongside: [`eslint-plugin-namespaced-storage`](packages/eslint-plugin), which
-bans raw `localStorage`, requires literal namespaces and rejects reserved keys; and
-[`nss`](packages/cli), which reads your source and tells you what the app stores, who owns it, and
-whether two places claim the same namespace.
-
-`owner` and `description` are accepted and stored on the store today, but nothing reads them until
-the CLI lands — set them now and the inventory will be right when it arrives.
+Ships with two companions: [`eslint-plugin-namespaced-storage`](packages/eslint-plugin) (bans raw
+`localStorage`, requires literal namespaces) and [`nss`](packages/cli) (scans your source for an
+inventory of what the app stores). Planned for a later release: a docs site, and an async core for
+IndexedDB and Redis.
 
 ## License
 
