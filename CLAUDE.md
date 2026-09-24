@@ -33,18 +33,21 @@ An npm package that puts a namespacing, typing and governance layer over key-val
 
 **Shipped: `1.0.0`, all twelve milestones.**
 
-| package                            | version | tests | notes                                            |
-| ---------------------------------- | ------- | ----- | ------------------------------------------------ |
-| `namespaced-storage`               | 1.0.0   | 307   | 6.41 kB · 5.17 kB from `/minimal` · 99.8% lines  |
-| `eslint-plugin-namespaced-storage` | 1.0.0   | 69    | four rules, flat + eslintrc, zero deps           |
-| `nss`                              | 1.0.0   | 41    | `scan` · `--json` · `docs`, `typescript` as peer |
+| package                            | version | tests | notes                                             |
+| ---------------------------------- | ------- | ----- | ------------------------------------------------- |
+| `namespaced-storage`               | 1.0.0   | 307   | 6.41 kB · 5.17 kB from `/minimal` · 99.8% lines   |
+| `eslint-plugin-namespaced-storage` | 1.0.0   | 69    | four rules, flat + eslintrc, zero deps            |
+| `@namespaced-storage/cli`          | 1.0.0   | 41    | `scan` · `--json` · `docs`; binary is still `nss` |
 
 Docs in `docs/`, the AI skill in `packages/core/skill/SKILL.md` (symlinked into `.claude/skills/`),
 three examples in `examples/`. `.github/workflows/release.yml` publishes through changesets with
-npm provenance.
+npm provenance. Repo: [github.com/shayan1998/namespaced-storage](https://github.com/shayan1998/namespaced-storage).
 
-**Not done, and waiting on a human:** the npm name `nss` is probably taken — check before the first
-publish; `NPM_TOKEN` must be in repository secrets; nothing has been published yet.
+**Resolved:** `nss` was taken on npm, so the CLI package is `@namespaced-storage/cli` (binary name
+unchanged — PLAN.md §"Before the first publish" already called this fallback).
+
+**Still not done:** `NPM_TOKEN` isn't in the repository's Actions secrets yet, so `release.yml`
+can't auto-publish; the first publish is manual until that's set up.
 
 Two entry points, one store: `src/full.ts` wires in every feature, `src/minimal.ts` wires in
 nothing above level 1, and both call `makeFactory` in `src/store/create.ts`. A feature added to the

@@ -60,7 +60,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shayanmirzaei/namespaced-storage.git",
+    "url": "git+https://github.com/shayan1998/namespaced-storage.git",
     "directory": "packages/eslint-plugin"
   }
 }

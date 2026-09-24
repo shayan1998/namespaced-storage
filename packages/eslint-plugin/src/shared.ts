@@ -100,5 +100,5 @@ export function isVirtualFile(filename: string): boolean {
 }
 
 export function docsUrl(rule: string): string {
-  return `https://github.com/shayanmirzaei/namespaced-storage/blob/main/packages/eslint-plugin/README.md#${rule}`;
+  return `https://github.com/shayan1998/namespaced-storage/blob/main/packages/eslint-plugin/README.md#${rule}`;
 }

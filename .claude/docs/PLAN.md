@@ -543,12 +543,13 @@ only (peer) dependency. `publint` clean on all three; `attw` clean for node16 an
 resolution (ADR-027). Docs, the AI skill, `llms.txt` and three examples are in the repository, and
 the release workflow publishes through changesets with npm provenance.
 
-**Before the first publish, two things are still on a human:**
+**Before the first publish, one thing is still on a human:**
 
-1. The npm name `nss` is almost certainly taken — check it, and fall back to a scoped name
-   (`@namespaced-storage/cli`) if it is. The binary stays `nss` either way.
+1. ~~The npm name `nss` is almost certainly taken~~ — it was. The CLI package is
+   `@namespaced-storage/cli`; the binary stays `nss`.
 2. `NPM_TOKEN` has to exist in the repository's secrets, and the repository has to be public for
-   provenance to be attested.
+   provenance to be attested. The repository ([shayan1998/namespaced-storage](https://github.com/shayan1998/namespaced-storage))
+   is public; the token is not set yet, so the first publish is manual.
 
 Two things **M1** surfaced that were not in the plan:
 
