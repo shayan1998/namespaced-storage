@@ -4,13 +4,13 @@ The inventory for [`namespaced-storage`](https://github.com/shayan1998/namespace
 this codebase stores, who owns it, and whether two places quietly claim the same namespace.
 
 ```bash
-npm install --save-dev @namespaced-storage/cli
+npm install --save-dev @shayan-mirzaie/cli
 npx nss scan
 ```
 
-The package is scoped (`@namespaced-storage/cli`) but the binary it installs is `nss` — once it's a
+The package is scoped (`@shayan-mirzaie/cli`) but the binary it installs is `nss` — once it's a
 devDependency, `npx nss` and any `nss` in a `package.json` script resolve to it directly. To run it
-without installing anything first, name the package explicitly: `npx -p @namespaced-storage/cli nss scan`.
+without installing anything first, name the package explicitly: `npx -p @shayan-mirzaie/cli nss scan`.
 
 ```
 namespaced-storage · 3 namespaces across 3 files · 214 files scanned
@@ -62,7 +62,7 @@ stores, exactly as the runtime registry has it.
 
 ## In CI
 
-With `@namespaced-storage/cli` already a devDependency, the install step your job already runs
+With `@shayan-mirzaie/cli` already a devDependency, the install step your job already runs
 (`npm ci`, `pnpm install`, …) puts `nss` on the local `PATH`:
 
 ```yaml
@@ -90,7 +90,7 @@ Or commit the inventory and let review notice when it changes:
 ## As a library
 
 ```ts
-import { scan, formatJson } from '@namespaced-storage/cli';
+import { scan, formatJson } from '@shayan-mirzaie/cli';
 
 const result = scan('src');
 if (result.problems.length > 0) process.exit(1);

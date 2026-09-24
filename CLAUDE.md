@@ -37,13 +37,13 @@ An npm package that puts a namespacing, typing and governance layer over key-val
 | ---------------------------------- | ------- | ----- | ------------------------------------------------- |
 | `namespaced-storage`               | 1.0.0   | 307   | 6.41 kB · 5.17 kB from `/minimal` · 99.8% lines   |
 | `eslint-plugin-namespaced-storage` | 1.0.0   | 69    | four rules, flat + eslintrc, zero deps            |
-| `@namespaced-storage/cli`          | 1.0.0   | 41    | `scan` · `--json` · `docs`; binary is still `nss` |
+| `@shayan-mirzaie/cli`              | 1.0.0   | 41    | `scan` · `--json` · `docs`; binary is still `nss` |
 
 Docs in `docs/`, the AI skill in `packages/core/skill/SKILL.md` (symlinked into `.claude/skills/`),
 three examples in `examples/`. `.github/workflows/release.yml` publishes through changesets with
 npm provenance. Repo: [github.com/shayan1998/namespaced-storage](https://github.com/shayan1998/namespaced-storage).
 
-**Resolved:** `nss` was taken on npm, so the CLI package is `@namespaced-storage/cli` (binary name
+**Resolved:** `nss` was taken on npm, so the CLI package is `@shayan-mirzaie/cli` (binary name
 unchanged — PLAN.md §"Before the first publish" already called this fallback).
 
 **Still not done:** `NPM_TOKEN` isn't in the repository's Actions secrets yet, so `release.yml`

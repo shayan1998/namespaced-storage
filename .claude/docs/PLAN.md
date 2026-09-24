@@ -546,7 +546,7 @@ the release workflow publishes through changesets with npm provenance.
 **Before the first publish, one thing is still on a human:**
 
 1. ~~The npm name `nss` is almost certainly taken~~ — it was. The CLI package is
-   `@namespaced-storage/cli`; the binary stays `nss`.
+   `@shayan-mirzaie/cli`; the binary stays `nss`.
 2. `NPM_TOKEN` has to exist in the repository's secrets, and the repository has to be public for
    provenance to be attested. The repository ([shayan1998/namespaced-storage](https://github.com/shayan1998/namespaced-storage))
    is public; the token is not set yet, so the first publish is manual.
