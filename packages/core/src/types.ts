@@ -3,10 +3,34 @@ import type { NamespacedStorageError } from './errors.js';
 /** What to do when a stored value cannot be parsed. Reads never throw unless you ask them to. */
 export type CorruptPolicy = 'ignore' | 'remove' | 'throw';
 
+/** What to do when a stored value fails its schema — usually data from an older shape. */
+export type InvalidPolicy = 'ignore' | 'remove' | 'throw';
+
 /** What to do when the requested storage backend is unavailable (SSR, private mode, blocked). */
 export type FallbackPolicy = 'memory' | 'throw' | 'noop';
 
+/**
+ * Moves a namespace from an older shape to the one this build expects.
+ *
+ * `previous` is every readable key in the namespace, decoded but *not* validated — old data must
+ * reach the migration as it actually is, not as the current schema wishes it were. Return the
+ * shape the namespace should now have, or return nothing and mutate `previous` in place. Keys the
+ * result does not carry are removed; keys whose value is unchanged keep their timestamps and TTL.
+ */
+export type MigrateFn = (
+  previous: Record<string, unknown>,
+  fromVersion: number,
+) => Record<string, unknown> | void;
+
 export interface StoreOptions {
+  /**
+   * The shape this build expects, default `1`. Raising it runs `migrate` once, at construction,
+   * and records the new version in the namespace's reserved `__nss:meta` key. Nothing is read or
+   * written while it stays at 1, so a store that never versions never pays for versioning.
+   */
+  version?: number;
+  /** Runs once when stored data is older than `version`. Requires `version` above 1. */
+  migrate?: MigrateFn;
   /** Default `'memory'` — the app keeps working when storage is missing or blocked. */
   fallback?: FallbackPolicy;
   /** Default `':'`. Must not be made of characters that are legal inside a namespace. */
@@ -19,38 +43,136 @@ export interface StoreOptions {
   description?: string;
   /** Default `'ignore'` — a corrupt value reads as `undefined` and reports via `onError`. */
   onCorrupt?: CorruptPolicy;
+  /** Default `'ignore'` — a value failing its schema reads as its default, or `undefined`. */
+  onInvalid?: InvalidPolicy;
+  /** Record `createdAt` / `updatedAt` on every key. Off by default: it costs bytes and a read. */
+  timestamps?: boolean;
+  /** Default lifetime in ms for every key in this namespace. A per-call `ttl` overrides it. */
+  ttl?: number;
   onError?: (error: NamespacedStorageError) => void;
+  /**
+   * Guard against two places constructing the same namespace. Defaults to throwing outside
+   * production and reporting inside it; `false` turns the guard off entirely.
+   */
+  strict?: boolean;
+}
+
+/** Declares the keys a store holds. See `defaults` and `schema` in the README. */
+export interface TypedStoreOptions<
+  D extends Record<string, unknown> = Record<never, never>,
+  S extends Record<string, unknown> = Record<never, never>,
+> extends StoreOptions {
+  /** Fallback values. Their types become the key types; a clone is returned on every read. */
+  defaults?: D;
+  /** `t.*` or any Standard Schema validator. Validates on write, and on read per `onInvalid`. */
+  schema?: S;
+}
+
+export interface SetOptions {
+  /** Lifetime in ms from now. Overrides the namespace default. Must be finite and positive. */
+  ttl?: number;
+}
+
+/** Timestamps and expiry recorded alongside a value. Present only for keys that carry them. */
+export interface EntryMeta {
+  createdAt?: number;
+  updatedAt?: number;
+  expiresAt?: number;
 }
 
 export type TrySetResult = { ok: true } | { ok: false; error: NamespacedStorageError };
 
-export interface SyncNamespacedStore {
-  /** Writing `undefined` removes the key. */
-  set(key: string, value: unknown): void;
-  get<T = unknown>(key: string): T | undefined;
-  remove(key: string): void;
-  has(key: string): boolean;
-  /** Removes every key in this namespace — and only this namespace. */
-  clear(): void;
-  keys(): string[];
-  entries(): [string, unknown][];
-  readonly size: number;
+export type Unsubscribe = () => void;
 
-  /** Aliases matching the native API, so migrating off raw storage is mechanical. */
-  setItem(key: string, value: unknown): void;
-  getItem<T = unknown>(key: string): T | undefined;
-  removeItem(key: string): void;
+export interface ChangeEvent<T = unknown> {
+  /**
+   * The namespace-relative key, or `null` when another tab cleared the whole storage area.
+   * A per-key subscriber never sees `null`; it is told about its own key instead.
+   */
+  key: string | null;
+  /** `undefined` when the key was removed. Defaults are not applied to an event. */
+  newValue: T | undefined;
+  /** The previous value. Never persisted — it is free here and only here (ADR-004). */
+  oldValue: T | undefined;
+  /** `'remote'` means another tab made the change. */
+  source: 'local' | 'remote';
+}
 
-  /** Like `set`, but returns the error instead of throwing it. */
-  trySet(key: string, value: unknown): TrySetResult;
-
-  /** A nested namespace: `basket.child('ui')` reads and writes `basket:ui:*`. */
-  child(segment: string): SyncNamespacedStore;
-
+interface StoreIdentity {
   /** Full namespace path, e.g. `'myapp:basket'`. */
   readonly namespace: string;
   /** Name of the backend actually in use — `'localStorage'`, `'memory'`, `'noop'`, … */
   readonly adapter: string;
   /** `false` when the requested backend was unavailable and a fallback is in use. */
   readonly available: boolean;
+}
+
+interface StoreCommon<K extends string> extends StoreIdentity {
+  remove(key: K): void;
+  has(key: K): boolean;
+  /** Removes every key in this namespace — and only this namespace. */
+  clear(): void;
+  /**
+   * The keys currently present in storage, namespace-relative. A key that has a default but has
+   * never been written is absent here, even though `get` returns its default.
+   */
+  keys(): K[];
+  readonly size: number;
+  /** Timestamps and expiry for a key, or `undefined` when it carries none. */
+  meta(key: K): EntryMeta | undefined;
+  /** Milliseconds until the key expires, or `null` when it has no expiry or is already gone. */
+  ttl(key: K): number | null;
+  /** A nested namespace: `basket.child('ui')` reads and writes `basket:ui:*`. It is untyped. */
+  child(segment: string): SyncNamespacedStore;
+  /**
+   * Prints one `console.table` of everything this namespace holds. Present in every build,
+   * production included — that is where inspecting is worth most (ADR-023).
+   */
+  inspect(): void;
+  removeItem(key: K): void;
+}
+
+/** A store with no declared keys: any string key, values typed by the caller. */
+export interface SyncNamespacedStore extends StoreCommon<string> {
+  /** Writing `undefined` removes the key. */
+  set(key: string, value: unknown, options?: SetOptions): void;
+  get<T = unknown>(key: string): T | undefined;
+  entries(): [string, unknown][];
+  setItem(key: string, value: unknown, options?: SetOptions): void;
+  getItem<T = unknown>(key: string): T | undefined;
+  /** Like `set`, but returns the error instead of throwing it. */
+  trySet(key: string, value: unknown, options?: SetOptions): TrySetResult;
+  /** A plain snapshot of the namespace — the same values `get()` returns, key by key. */
+  export(): Record<string, unknown>;
+  /** Watch one key, in this tab and in others. */
+  subscribe<T = unknown>(key: string, listener: (event: ChangeEvent<T>) => void): Unsubscribe;
+  /** Watch every key in the namespace. */
+  subscribe(listener: (event: ChangeEvent) => void): Unsubscribe;
+}
+
+/**
+ * A store whose keys and value types are known.
+ *
+ * `V` maps each key to its value type; `D` is the subset of keys that have a default and
+ * therefore never read back as `undefined`.
+ */
+export interface TypedSyncNamespacedStore<
+  V extends Record<string, unknown>,
+  D extends keyof V = never,
+> extends StoreCommon<keyof V & string> {
+  set<K extends keyof V & string>(key: K, value: V[K], options?: SetOptions): void;
+  get<K extends keyof V & string>(key: K): K extends D ? V[K] : V[K] | undefined;
+  entries(): { [K in keyof V & string]: [K, V[K]] }[keyof V & string][];
+  setItem<K extends keyof V & string>(key: K, value: V[K], options?: SetOptions): void;
+  getItem<K extends keyof V & string>(key: K): K extends D ? V[K] : V[K] | undefined;
+  trySet<K extends keyof V & string>(key: K, value: V[K], options?: SetOptions): TrySetResult;
+  /** A plain snapshot of the namespace — the same values `get()` returns, key by key. */
+  export(): Partial<V>;
+  /** Watch one key, in this tab and in others. */
+  subscribe<K extends keyof V & string>(
+    key: K,
+    listener: (event: ChangeEvent<V[K]>) => void,
+  ): Unsubscribe;
+  /** Watch every key in the namespace. */
+  subscribe(listener: (event: ChangeEvent<V[keyof V & string]>) => void): Unsubscribe;
 }

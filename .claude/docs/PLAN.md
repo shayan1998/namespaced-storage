@@ -3,7 +3,7 @@
 > Living document. Every design change goes here first, then into code.
 > Companion: [DECISIONS.md](./DECISIONS.md) (ADR log) · [PREVIEW.md](./PREVIEW.md) (dry run of the output).
 
-**Status:** M0 + M1 done (`0.1.0`) · **Target first release:** `1.0.0` · **npm name:** `namespaced-storage` (verified available)
+**Status:** M0–M6 done (`0.1.0`) · **Target first release:** `1.0.0` · **npm name:** `namespaced-storage` (verified available)
 
 ---
 
@@ -193,8 +193,8 @@ interface SyncNamespacedStore<T> {
   child(sub: string): SyncNamespacedStore<unknown>; // basket.child('ui') -> "basket:ui:*"
 
   // devtools / ops
-  inspect(): void; // console.table of the namespace (stripped in prod builds)
-  export(): Record<string, unknown>;
+  inspect(): void; // console.table of the namespace — present in every build
+  export(): Record<string, unknown>; // plain snapshot, same values get() returns
 
   // identity
   readonly namespace: string;
@@ -227,8 +227,11 @@ interface StoreOptions {
   owner?: string; // read by `nss scan` for the manifest
   description?: string; // read by `nss scan` for the manifest
 
-  version?: number; // default 1
-  migrate?: (old: unknown, fromVersion: number) => unknown;
+  version?: number; // default 1; nothing is stamped on disk until it passes 1
+  migrate?: (
+    previous: Record<string, unknown>,
+    fromVersion: number,
+  ) => Record<string, unknown> | void;
 
   fallback?: 'memory' | 'throw' | 'noop'; // adapter unavailable; default 'memory'
   separator?: string; // default ':'
@@ -244,6 +247,28 @@ interface StoreOptions {
   strict?: boolean; // default true in dev — guard duplicate namespaces
 }
 ```
+
+### 5.7 Devtools
+
+```ts
+basket.inspect(); // one console.table of this namespace
+basket.export(); // { count: 10, items: [...] } — a plain snapshot
+```
+
+`inspect()` writes a summary line and hands the rows to the host's own `console.table`, rather than
+drawing a table itself: the browser and Node already render one, and one that folds objects open.
+
+Both ship in **every** build, production included — a namespace you cannot inspect in production is
+a namespace you cannot debug where it matters (ADR-023). What is development-only is the global
+hook, which exists so the console can reach a store nothing exported to it:
+
+```js
+__NAMESPACED_STORAGE__.stores.basket.get('count');
+__NAMESPACED_STORAGE__.inspect(); // every namespace on the page, one row each
+```
+
+It is registered by the factory when `NODE_ENV` is not `production`, and holding every store alive
+in a global is exactly why it is not registered in production.
 
 ### 5.6 Discoverability — generated, not hand-maintained
 
@@ -267,7 +292,9 @@ namespaced-storage · 7 namespaces across 6 files
 
 `nss scan --json` emits the machine-readable manifest; `nss docs -o docs/storage.md` writes the
 markdown inventory. This catches duplicates **across packages in a monorepo**, which a central object
-literal cannot.
+literal cannot. Both read syntax only — no type checker, no `tsconfig` — so they work on a
+repository that does not compile, and a namespace that is not a literal is reported as a problem
+rather than skipped (ADR-026). Exit code `1` on any problem, so it belongs in CI.
 
 At runtime, a global registry throws `NamespaceConflictError` the moment a duplicate namespace is
 constructed (dev only, `strict: false` to opt out; re-registration with an identical config warns
@@ -302,16 +329,27 @@ Maximum interoperability, minimum size, and pre-existing raw data keeps working.
 **Envelope (only when needed):**
 
 ```json
-{ "__nss": 1, "v": <encoded>, "t": "date", "c": 1700000000000, "u": 1700000000000, "e": 1700000600000 }
+{
+  "__nss": 1,
+  "v": <payload>,
+  "t": [[["user", "lastSeen"], "date"]],
+  "c": 1700000000000,
+  "u": 1700000000000,
+  "e": 1700000600000
+}
 ```
 
-| field     | meaning                                                           | present when            |
-| --------- | ----------------------------------------------------------------- | ----------------------- |
-| `__nss`   | envelope format version — also the magic marker                   | always (in an envelope) |
-| `v`       | the codec-encoded value                                           | always                  |
-| `t`       | codec tag (`date`, `map`, `set`, `bigint`, `regexp`, `undefined`) | non-JSON-native type    |
-| `c` / `u` | createdAt / updatedAt (ms)                                        | `timestamps: true`      |
-| `e`       | expiresAt (ms)                                                    | a TTL is set            |
+| field     | meaning                                                        | present when                |
+| --------- | -------------------------------------------------------------- | --------------------------- |
+| `__nss`   | envelope format version — also the magic marker                | always (in an envelope)     |
+| `v`       | the payload: the user's structure, unmodified                  | always                      |
+| `t`       | `[path, tag]` pairs for values JSON cannot represent (ADR-014) | any such value at any depth |
+| `c` / `u` | createdAt / updatedAt (ms)                                     | `timestamps: true`          |
+| `e`       | expiresAt (ms)                                                 | a TTL is set                |
+
+Tags are recorded **out of band, by path**, so nothing is ever injected into the user's data and the
+payload stays byte-identical to what they passed in. Supported tags: `date`, `map`, `set`, `bigint`,
+`regexp`, `undef`, `nan`, `inf`, `-inf`.
 
 **Encode:**
 
@@ -328,6 +366,22 @@ Maximum interoperability, minimum size, and pre-existing raw data keeps working.
 
 Step 2 of encode is what makes this collision-proof: an object that genuinely contains a top-level
 `__nss` forces envelope mode, so the round-trip stays exact for every possible input.
+
+### 6.3 The namespace record
+
+One reserved key per namespace holds what is true of the namespace rather than of any one entry.
+Today that is the schema version and nothing else.
+
+```
+basket:__nss:meta   →   {"v":2}
+```
+
+- It is written **only when `version` is greater than 1**. A store that never asks for versioning
+  never pays a read, a write or a byte for it.
+- Its key starts with `__nss`, so it is already invisible to `keys()`, `entries()`, `size` and
+  `subscribe()`, and `clear()` already removes it along with the data it describes.
+- Absent while data is present means the data predates versioning: it is read as version 1.
+- Only the root store carries one. `basket.child('ui')` is a view, not a namespace (ADR-022).
 
 ---
 
@@ -392,8 +446,10 @@ NamespacedStorageError            (base — .code, .namespace, .key?, .cause?)
 
 ```
 packages/core/src/
-├── index.ts                public API
-├── types.ts  errors.ts
+├── index.ts                public API — re-exports full.ts
+├── full.ts                 the three factories, every feature wired in
+├── minimal.ts              the same three, level 1 only (ADR-025)
+├── types.ts  errors.ts  env.ts
 ├── namespace/  key.ts      encode/decode/validate
 │              registry.ts  global duplicate guard (HMR-tolerant)
 ├── codec/      envelope.ts json.ts  builtins.ts  infer.ts
@@ -439,6 +495,12 @@ dependencies, and neither may be bundled into the runtime.
 
 Note that `require-namespace-literal` is now **error, not warn** — the CLI's inventory depends on it.
 
+`configs.recommended` and `configs.strict` are flat configs; `configs['legacy-recommended']` and
+`configs['legacy-strict']` are the eslintrc shapes. Every rule but `no-direct-storage` fires only
+on calls that resolve to an import from `namespaced-storage`, so a same-named function of your own
+is never reported; `no-direct-storage` has no import to follow and resolves the global through
+scope instead (ADR-024). The package has zero runtime dependencies of its own.
+
 ---
 
 ## 9. AI skill
@@ -456,34 +518,54 @@ expectations, SSR), and a migration recipe from raw storage calls.
 
 Each milestone ends green: tests passing, types building, size budget met.
 
-| #         | Milestone                | Contents                                                                                                                                                                                    |
-| --------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **M0** ✅ | Scaffold                 | pnpm workspace, TS strict, tsup dual ESM/CJS, Vitest + happy-dom, ESLint 9 + Prettier, changesets, GitHub Actions, size-limit                                                               |
-| **M1** ✅ | Walking skeleton         | key encode/decode/validate · web-storage + memory adapters · availability probe + fallback · error taxonomy · `set/get/remove/has/clear/keys/size` → **`0.1.0`, already useful at level 1** |
-| **M2**    | Codecs                   | smart envelope · builtin codecs (Date, Map, Set, BigInt, RegExp, undefined) · `__nss` collision rule · legacy-raw-value compatibility                                                       |
-| **M3**    | Typing                   | `defaults` inference (primary path) · mini `t.*` · Standard Schema v1 adapter · combining both · `onInvalid` policy                                                                         |
-| **M4**    | Time                     | `timestamps` · TTL with lazy expiry on read · `meta()` · `ttl()`                                                                                                                            |
-| **M5**    | Reactivity & composition | cross-tab `storage` event filtered by prefix · in-process emitter · `subscribe` · `child()`                                                                                                 |
-| **M6**    | Namespace guard          | global registry · `NamespaceConflictError` with both creation sites · HMR tolerance                                                                                                         |
-| **M7**    | Versioning               | `version` + `migrate` · per-namespace `__nss:meta` key · `MigrationError`                                                                                                                   |
-| **M8**    | Devtools                 | `inspect()` · `export()` · `globalThis.__NAMESPACED_STORAGE__` (dev builds only)                                                                                                            |
-| **M9**    | ESLint plugin            | the four rules, both configs, rule tests                                                                                                                                                    |
-| **M10**   | `nss` CLI                | `scan` (inventory + cross-file duplicate detection) · `--json` manifest · `docs` generator · CI recipe                                                                                      |
-| **M11**   | Docs & DX                | README · docs site · SKILL.md · `llms.txt` · three examples · migration guide                                                                                                               |
-| **M12**   | Harden & ship            | env matrix tests, `publint` + `@arethetypeswrong/cli`, size budget, npm provenance → **`1.0.0`**                                                                                            |
+| #          | Milestone                | Contents                                                                                                                                                                                    |
+| ---------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **M0** ✅  | Scaffold                 | pnpm workspace, TS strict, tsup dual ESM/CJS, Vitest + happy-dom, ESLint 9 + Prettier, changesets, GitHub Actions, size-limit                                                               |
+| **M1** ✅  | Walking skeleton         | key encode/decode/validate · web-storage + memory adapters · availability probe + fallback · error taxonomy · `set/get/remove/has/clear/keys/size` → **`0.1.0`, already useful at level 1** |
+| **M2** ✅  | Codecs                   | smart envelope · builtin codecs (Date, Map, Set, BigInt, RegExp, undefined) · `__nss` collision rule · legacy-raw-value compatibility                                                       |
+| **M3** ✅  | Typing                   | `defaults` inference (primary path) · mini `t.*` · Standard Schema v1 adapter · combining both · `onInvalid` policy                                                                         |
+| **M4** ✅  | Time                     | `timestamps` · TTL with lazy expiry on read · `meta()` · `ttl()`                                                                                                                            |
+| **M5** ✅  | Reactivity & composition | cross-tab `storage` event filtered by prefix · in-process emitter · `subscribe` · `child()`                                                                                                 |
+| **M6** ✅  | Namespace guard          | global registry · `NamespaceConflictError` with both creation sites · HMR tolerance                                                                                                         |
+| **M7** ✅  | Versioning               | `version` + `migrate` · per-namespace `__nss:meta` key · `MigrationError`                                                                                                                   |
+| **M8** ✅  | Devtools                 | `inspect()` · `export()` · `globalThis.__NAMESPACED_STORAGE__` (dev builds only)                                                                                                            |
+| **M9** ✅  | ESLint plugin            | the four rules, both configs, rule tests                                                                                                                                                    |
+| **M10** ✅ | `nss` CLI                | `scan` (inventory + cross-file duplicate detection) · `--json` manifest · `docs` generator · CI recipe                                                                                      |
+| **M11** ✅ | Docs & DX                | README · docs site · SKILL.md · `llms.txt` · three examples · migration guide                                                                                                               |
+| **M12** ✅ | Harden & ship            | env matrix tests, `publint` + `@arethetypeswrong/cli`, size budget, npm provenance → **`1.0.0`**                                                                                            |
 
 ### Shipped so far
 
-**M0 + M1 → `0.1.0`.** 64 tests, 99.5% lines / 100% functions, 2.09 kB minified+brotli against a
-3 kB budget, `publint` and `attw` clean on both ESM and CJS entry points.
+**M0–M12 → `1.0.0`.** `packages/core`: 307 tests, 99.8% lines, 6.41 kB minified+brotli against a
+6.5 kB budget, and 5.17 kB from `namespaced-storage/minimal`. `packages/eslint-plugin`: 69 tests,
+100% lines, zero runtime dependencies. `packages/cli`: 41 tests, 99% lines, `typescript` as its
+only (peer) dependency. `publint` clean on all three; `attw` clean for node16 and bundler
+resolution (ADR-027). Docs, the AI skill, `llms.txt` and three examples are in the repository, and
+the release workflow publishes through changesets with npm provenance.
 
-Two things the milestone surfaced that were not in the plan:
+**Before the first publish, two things are still on a human:**
+
+1. The npm name `nss` is almost certainly taken — check it, and fall back to a scoped name
+   (`@namespaced-storage/cli`) if it is. The binary stays `nss` either way.
+2. `NPM_TOKEN` has to exist in the repository's secrets, and the repository has to be public for
+   provenance to be attested.
+
+Two things **M1** surfaced that were not in the plan:
 
 - **Separator validation.** A custom `separator` made only of characters a namespace may legally
   contain (`.`, `-`) would make encoded keys ambiguous, so it is now rejected at construction.
 - **`set(key, undefined)` means remove.** `JSON.stringify(undefined)` returns `undefined`, not a
   string, so the plain path cannot represent it. Removal is the intuitive reading and it makes the
   `undefined` codec tag planned for M2 unnecessary — drop it from the M2 codec list.
+
+And two **M7** surfaced:
+
+- **A migration is allowed to mutate the snapshot**, so the write-back compares against a copy
+  taken before the migration ran. Comparing against the object the migration was handed made
+  `delete previous.token` a no-op — the key was gone from both sides (ADR-022).
+- **Versioning costs 0.78 kB** of the budget, all of it paid by stores that never version, because
+  the factory reaches the module unconditionally. Making it tree-shakable needs a subpath import
+  and a change to the API shape; it is worth revisiting before 1.0 if the budget gets tight.
 
 ### After 1.0
 
@@ -499,9 +581,19 @@ Two things the milestone surfaced that were not in the plan:
   pre-existing raw values, synthetic cross-tab `StorageEvent`. Coverage gate 90% on `packages/core`.
 - **Types.** `tsc --strict`, no `any` in the public surface, `expect-type` assertions for inference
   (especially `defaults` → key union and `T[K]`), `@arethetypeswrong/cli` clean.
-- **Size (`size-limit`, gzip).** core level 1 < 3.0 kB · with typing < 5.5 kB · `sideEffects: false`
+- **Size (`size-limit`, minified + brotli).** Budgeted per milestone rather than once up front, so
+  each milestone has to justify its own weight: after M9, 6.5 kB (actual 6.41; 7.01 with `t.*`;
+  **5.17 from `namespaced-storage/minimal`**). The original < 6 kB target holds only for the
+  minimal entry point, which is the one the non-negotiable was actually about · `sideEffects: false`
   and subpath exports so unused features tree-shake away.
+- **Modularity — paid, with `namespaced-storage/minimal` (ADR-025).** "Never make level 1 pay for
+  level 2 or 3" had stopped being true: every feature was reached from the factory. Measured, the
+  debt was 1.19 kB of a 6.39 kB level-1 bundle. A second entry point now wires in nothing above
+  level 1 — 5.17 kB against 6.41 kB — and refuses `defaults`, `schema`, `version` and `migrate` by
+  name rather than ignoring them. One store, one `sync.ts`; the entries differ only in the features
+  they hand `makeFactory`. The seam costs the full build about 0.1 kB, which is the trade.
+  The codecs stay in both: a `Date` reading back as a `Date` is a level-1 promise, not an upgrade.
 - **Zero runtime dependencies** in `packages/core`.
-- **Packaging.** Dual ESM/CJS, exports map (`.`, `./schema`, `./adapters`, `./package.json`),
+- **Packaging.** Dual ESM/CJS, exports map (`.`, `./minimal`, `./package.json`),
   `publint` clean, npm provenance on publish.
 - **Compatibility.** ES2020 target · Node ≥18 · evergreen browsers · SSR-safe by construction.

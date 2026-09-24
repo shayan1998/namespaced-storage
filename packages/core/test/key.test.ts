@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { resetNamespaceRegistry } from '../src/namespace/registry.js';
 import {
   DEFAULT_SEPARATOR,
   assertValidKey,
@@ -8,6 +9,8 @@ import {
   isReservedKey,
 } from '../src/namespace/key.js';
 import { InvalidKeyError, InvalidNamespaceError, InvalidOptionsError } from '../src/errors.js';
+
+beforeEach(() => resetNamespaceRegistry());
 
 describe('segment validation', () => {
   it('accepts the documented character set', () => {

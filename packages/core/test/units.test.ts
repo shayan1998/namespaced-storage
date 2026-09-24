@@ -1,17 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as publicApi from '../src/index.js';
-import { createMemoryStorage } from '../src/store/create.js';
+import { createMemoryStorage } from '../src/full.js';
 import {
   createMemoryAdapter,
   createNoopAdapter,
   resetMemoryAdapters,
 } from '../src/adapters/memory.js';
+import { resetNamespaceRegistry } from '../src/namespace/registry.js';
 import { createSyncStore } from '../src/store/sync.js';
-import { approximateBytes, formatBytes } from '../src/codec/json.js';
+import { approximateBytes, formatBytes } from '../src/codec/size.js';
 import { NamespacedStorageError, StorageUnavailableError, isQuotaError } from '../src/errors.js';
 import type { SyncAdapter } from '../src/adapters/types.js';
 
-beforeEach(() => resetMemoryAdapters());
+beforeEach(() => {
+  resetMemoryAdapters();
+  resetNamespaceRegistry();
+});
 
 describe('public entry point', () => {
   it('exports the documented surface', () => {

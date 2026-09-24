@@ -224,7 +224,7 @@ scan depends on it. `defineNamespaces` and `$manifest()` are removed from the de
 
 ## ADR-012 — `defaults` is the primary way to declare types; `schema` is the advanced path
 
-**Status:** accepted · **Date:** 2026-09-19 · **Refines:** ADR-007
+**Status:** accepted, with the overlap rule superseded by ADR-015 · **Date:** 2026-09-19 · **Refines:** ADR-007
 
 Requiring `t.number().default(0)` for the simplest possible case means learning a DSL before writing
 one key. Most keys need a type and a fallback, not validation.
@@ -266,13 +266,480 @@ split visible at the call site rather than hidden in a config value.
 
 ---
 
+## ADR-014 — Type tags are out-of-band paths, and they apply at any depth
+
+**Status:** accepted · **Date:** 2026-09-19 · **Refines:** ADR-003 (changes the envelope's `t` field)
+
+PLAN.md §6.2 specified a single top-level `t: "date"` on the envelope. Implementing M2 showed that
+is only half a solution: it fixes `set('lastOpened', new Date())` but not
+`set('user', { lastSeen: new Date() })`, which is the far more common shape. A top-level-only tag
+would leave the exact bug the package exists to fix alive one level down.
+
+Two ways to make it deep were considered.
+
+**In-band markers** (replace each special value with `{"__nss_t":"date","v":…}`, as many
+serializers do). Rejected: a user object that genuinely contains `__nss_t` cannot be escaped without
+either an infinite wrap loop or renaming the user's own keys, and the payload stops being a faithful
+copy of the user's structure.
+
+**Out-of-band paths** (accepted, the approach `superjson` uses). The payload stays exactly the
+user's structure; the types live beside it:
+
+```json
+{
+  "__nss": 1,
+  "v": { "user": { "lastSeen": 1758297600000 } },
+  "t": [[["user", "lastSeen"], "date"]]
+}
+```
+
+`t` is a list of `[path, tag]` pairs; `[]` is the root. Nothing is ever injected into user data, so
+the only collision left is a top-level `__nss`, which ADR-003's force-the-envelope rule already
+covers. Revival runs deepest-path-first, so a `Map`'s entries are restored while it is still a plain
+array of pairs.
+
+Consequences beyond the original plan:
+
+- **`NaN`, `Infinity` and `-Infinity` are now preserved.** `JSON.stringify` turns all three into
+  `null` silently; this is the same class of bug as a lost `Date` and costs nothing extra to fix.
+- **Nested `undefined` is preserved** (JSON drops the key). Top-level `undefined` still means
+  removal, per the M1 finding — the two are each the intuitive reading in their position.
+- **The `undefined` codec tag from the plan is gone** as a top-level concern, as M1 predicted.
+- **`toJSON` is honoured**, after the built-in types, matching `JSON.stringify`.
+- Cycles are detected per branch, so a shared reference appearing twice is fine and only a genuine
+  cycle throws — with the offending path named.
+
+---
+
+## ADR-015 — `defaults` and `schema` may declare the same key
+
+**Status:** accepted · **Date:** 2026-09-19 · **Supersedes:** the overlap rule in ADR-012
+
+ADR-012 said a key appearing in both `defaults` and `schema` throws `InvalidOptionsError`, on the
+grounds that two declarations are ambiguous. Implementing M3 showed the opposite: the two options
+answer different questions, so overlapping them is the _natural_ combination and forbidding it
+leaves a real hole — a key could be validated, or defaulted, but never both. `token` needs
+validation without a default; `mode` wants both.
+
+**Accepted:** where a key appears in both, the **schema supplies the type and the validation** and
+the **default supplies the fallback**. The schema wins the static type because it is the more
+precise statement (`t.enum(['light','dark'])` beats `string` inferred from `'light'`).
+
+The ambiguity ADR-012 feared is handled by checking rather than forbidding: at construction, each
+default is run through its own schema, and a contradiction throws `InvalidOptionsError` naming the
+key. `defaults: { count: 'zero' }` with `schema: { count: t.number() }` fails immediately instead
+of at the first read in production.
+
+Two consequences worth stating:
+
+- **A default also covers a validation failure on read.** Data left over from an older shape reads
+  back as the default rather than as `undefined`, which is almost always what the caller wants.
+- **`t.*` needs no `.default()` method**, which keeps the built-in schema builder smaller.
+
+---
+
+## ADR-016 — Writes are validated and always throw; reads follow `onInvalid`
+
+**Status:** accepted · **Date:** 2026-09-19
+
+The plan mentioned `onInvalid` only as a read policy. Validating writes as well turned out to be
+the more valuable half: it is what actually keeps bad data out of storage, and it costs one
+validation pass on a code path that is already doing a `JSON.stringify`.
+
+**Accepted:** `set` validates and throws `ValidationError` (carrying every issue with its path
+inside the value), consistent with ADR-009's "writes throw, reads do not". `onInvalid`
+(`'ignore'` | `'remove'` | `'throw'`, default `'ignore'`) governs reads only, where the data is
+already on disk and a render must not crash.
+
+A typed call site is already checked by the compiler, so runtime write validation is aimed at
+untyped callers, JavaScript consumers, and values that pass the type check but fail a refinement
+(`z.string().min(10)`).
+
+Related: a Standard Schema validator that returns a `Promise` is rejected with a clear
+`InvalidOptionsError` rather than silently treated as valid — a synchronous store cannot await it
+(ADR-006).
+
+---
+
+## ADR-017 — Expiry is lazy, and enumeration never writes
+
+**Status:** accepted · **Date:** 2026-09-22
+
+There is no timer to sweep expired keys: a browser tab that is closed before the deadline would
+leave them forever, and a background sweep would mean writes the caller never asked for. Expiry is
+therefore checked on access.
+
+That raises a question the plan did not: should `keys()`, `size` and `entries()` see expired keys?
+
+- Reporting them is wrong — `keys()` would list a key that `has()` denies.
+- Collecting them there means an enumeration silently mutates storage, which is surprising and, in
+  a cookie-blocked or read-only context, can fail.
+
+**Accepted:** `get` and `has` are expiry-aware **and collect** the dead entry, since they are
+already touching that one key. `keys`, `size` and `entries` **hide** expired entries but never
+delete. The two agree on what exists; only the cleanup differs.
+
+The cost of checking is kept near zero by `peekMeta`, which returns early unless the raw string
+contains the envelope marker at all. A plain value cannot carry an expiry, so the common case
+never pays for a `JSON.parse` — and after ADR-003 most values are plain.
+
+Related detail: with `timestamps: true`, an update has to read the existing entry to keep its
+original `createdAt`, so every write costs one extra read. That is why timestamps are off by
+default rather than always on.
+
+---
+
+## ADR-018 — The adapter is the single source of change events
+
+**Status:** accepted · **Date:** 2026-09-22
+
+The native `storage` event has a property that trips people up: **it does not fire in the tab that
+made the change.** So covering "tell me when this key changes" needs two sources — the native event
+for other tabs, and something local for this one.
+
+Putting the local half in the store would mean every write notifies, and a `child()` or a second
+store over the same namespace would each have their own listener list and miss each other's
+writes.
+
+**Accepted:** the adapter owns both. `setItem` / `removeItem` emit a local `RawChange`, and the web
+adapter additionally listens to the native event for remote ones, tagging each with
+`source: 'local' | 'remote'`. Two stores over the same backend therefore observe each other, and
+`clear()` produces one event per key for free, because it already goes through `removeItem`.
+
+Details that fall out of this:
+
+- **Filter by `storageArea`.** The `storage` event fires for both localStorage and sessionStorage,
+  so without the check a session store would react to a local write that happened to share a key.
+- **Capturing `oldValue` costs a read**, so the adapter only does it when something is listening.
+- **The native listener is attached on the first subscription and dropped with the last**, so a
+  store nobody watches leaks no window listener.
+
+## ADR-019 — What a subscriber is told, and what it can never do
+
+**Status:** accepted · **Date:** 2026-09-22
+
+A change event is delivered from inside the browser's event loop, where a thrown error has nowhere
+to go, and it carries raw strings that may not decode.
+
+**Accepted:**
+
+- **A subscriber that throws is caught, reported as `SubscriberError`, and skipped.** It never
+  stops the other subscribers, and never stops the write that triggered it.
+- **A value that fails to decode or validate is delivered as `undefined` and reported.** The
+  listener still learns the key changed, which is the useful half.
+- **Defaults are not applied to an event.** `newValue: undefined` means the key was removed. Saying
+  "it is now the default" would conflate a removal with a key that happens to have a fallback.
+- **A foreign `clear()` arrives as `key: null`.** A whole-namespace subscriber is handed that null
+  verbatim; a per-key subscriber is told about _its own_ key instead, because a null it would have
+  to interpret is no use to it.
+
+---
+
+## ADR-020 — The conflict guard throws in development and reports in production
+
+**Status:** accepted · **Date:** 2026-09-22 · **Refines:** ADR-011
+
+ADR-011 said a duplicate namespace "throws `NamespaceConflictError` naming both creation sites".
+Building it exposed a tension the plan had not weighed: identifying a call site means parsing
+`Error.stack`, whose format differs between engines and which minifiers rewrite. A guard that
+throws on a signal it cannot always read would crash a production page over a misread stack.
+
+**Accepted:** `strict` defaults to throwing outside production and reporting inside it. Either way
+the conflict reaches `onError`, so a monitored app finds out. `strict: true` forces the throw
+anywhere; `strict: false` turns the guard off, which is what tests and deliberate second instances
+use.
+
+Three rules make the guard trustworthy rather than merely present:
+
+- **An unknown site is never treated as a match.** If the engine will not give us a stack, two
+  registrations are reported as a conflict rather than assumed to be the same one. Silence is the
+  only failure mode that would make the guard worthless, so it is the one we design against.
+- **Identity is `backend::path`, using the _requested_ backend.** `localStorage` and
+  `sessionStorage` may each hold a namespace of the same name, and falling back to memory must not
+  change what a namespace _is_.
+- **The registry lives on `globalThis` under `Symbol.for`**, so it still works when a bundler or a
+  pnpm layout puts two copies of this package on one page — the case where a silent collision is
+  most likely in the first place.
+
+Children are not registered: nesting is derived, and `basket.child('ui')` twice is ordinary.
+
+### A bug this milestone caught in itself
+
+The first implementation filtered its own stack frames by matching `namespaced-storage/src/`,
+which never matches the real layout (`namespaced-storage/packages/core/src/`). Every call therefore
+resolved to the _same_ internal frame, every namespace looked like a re-evaluation of itself, and
+the guard was completely inert — while the whole suite passed. The tell was that adding the guard
+broke nothing. Once fixed it correctly failed 101 existing tests, all of which were re-creating
+namespaces across cases. That is what `resetNamespaceRegistry()` is for, and test setup now calls it.
+
+## ADR-021 — A malformed call reports its own mistake first
+
+**Status:** accepted · **Date:** 2026-09-22
+
+When a call is both malformed _and_ duplicates a namespace, the registration used to win, so
+`createMemoryStorage('s', { ttl: 0 })` reported a conflict rather than the nonsense ttl.
+
+**Accepted:** the store is constructed — which validates the namespace, the separator, the ttl, and
+every default against its schema — and only then is the namespace registered. The specific, local
+mistake is the actionable one; the conflict is about the environment and can wait. Construction has
+no side effects, so a store built and then discarded costs nothing.
+
+## ADR-022 — A migration is one function over the whole namespace, run once at construction
+
+**Status:** accepted · **Date:** 2026-09-22 · **Implements:** M7
+
+The plan reserved `basket:__nss:meta` for a namespace version and sketched
+`migrate(old, fromVersion)`, but left open what `old` is, when the function runs, and what happens
+when it fails. Building it forced all three.
+
+**Accepted:**
+
+- **The unit is the namespace, not the key.** There is one version per namespace, so a migration
+  receives one snapshot of every readable key — `{ count: 3, token: 'x' }` — and returns the shape
+  the namespace should have. Per-key versions would mean a stamp on every entry, which is a tax on
+  every write for a feature used a handful of times in a namespace's life.
+- **It runs eagerly, at construction, synchronously.** A lazy per-key migration cannot answer "has
+  this namespace been migrated?" without reading every key anyway, and the sync API may not await
+  (ADR-006). A migration returning a promise is a `MigrationError`, not a silent no-op.
+- **It runs after the store is built and the namespace is registered.** Construction validates
+  before it has side effects (ADR-021), and a duplicate namespace is found before anything is
+  rewritten — two stores over one namespace must not migrate the same data twice.
+- **Only keys that changed are written back.** The snapshot is compared by reference
+  (`Object.is`), so a migration that copies untouched values keeps their existing timestamps and
+  TTL rather than resetting them. Keys the migration dropped are removed; keys it could not read
+  (corrupt, and so absent from the snapshot) are left exactly where they are rather than deleted by
+  omission.
+- **Returning nothing means "I mutated the snapshot".** `(previous) => { delete previous.token }`
+  is the shortest correct migration, and requiring a return would make that silently wipe the
+  namespace. A return of anything that is not a plain object — an array, `null`, a primitive, a
+  promise — is a `MigrationError`, because every one of those is a mistake rather than an intent.
+
+**Failure is loud and leaves the stamp alone.** If the migration throws, returns the wrong shape, or
+writes a value its own schema rejects, the version is not advanced and `MigrationError` is both
+reported and thrown. The next construction therefore retries from the same version. Sync web
+storage has no transaction, so a migration interrupted mid-write (a quota failure on the third of
+five keys) replays over partly-new data: migrations should be written to tolerate that, and the
+README says so.
+
+**A version going backwards is reported, never enforced.** Storage stamped v3 read by code
+declaring v2 is a rolled-back deploy, not a corruption. Throwing would white-screen everyone whose
+data is ahead of the code they just received; instead `onError` gets a `MigrationError`, the data
+and the stamp are left untouched, and rolling forward again behaves as if nothing happened. The
+values themselves still face `onInvalid`, which is the mechanism already designed for data in a
+shape the code does not expect.
+
+**Level 1 pays nothing.** With no `version` (or `version: 1`) there is no stamp, no read at
+construction and no reserved key — the whole feature is one early return. A `migrate` that could
+never run, because `version` is absent or 1, is an `InvalidOptionsError` rather than dead code that
+quietly does nothing (ADR-021).
+
+**Children are views, not namespaces.** `basket.child('ui')` shares its parent's options, so
+stamping it would write `basket:ui:__nss:meta` and migrate the same data a second time under a
+narrower prefix. Only the root store constructed by a factory runs migrations — the same rule
+ADR-020 already applies to the conflict guard.
+
+## ADR-023 — Devtools ship in production; the global hook does not
+
+**Status:** accepted · **Date:** 2026-09-22 · **Closes:** open question 3
+
+The plan said `inspect()` would be "stripped in prod builds". Building it made that promise look
+worse than the problem it was solving.
+
+**Stripping cannot be done honestly here.** A bundler only removes the code if the guard is the
+literal `process.env.NODE_ENV`, which throws `ReferenceError` in a browser that loads the package
+without a bundler. Writing it safely — `typeof process === 'undefined' || …` — leaves a runtime
+check no minifier can fold, so nothing is removed and we would have paid for the guard as well.
+The only real way to strip is to publish separate development and production files, which doubles
+the packaging surface that `publint` and `attw` have to stay clean across.
+
+**Accepted:** `inspect()` and `export()` are ordinary methods, present in every build.
+
+- The case for stripping was size. The measured cost is 0.41 kB, and unlike TTL or codecs this is
+  not a level 2 feature level 1 is subsidising: "nobody can say what this app persists" is the
+  level 1 problem, and `inspect()` is the level 1 answer to it. It is, though, the milestone that
+  pushed the core past its 6 kB target — see the modularity note in PLAN §11.
+- The case against stripping is that production is where inspection is worth most. Asking someone
+  to paste `basket.inspect()` into a console is the shortest path from a bug report to what is
+  actually stored, and a build where that is a no-op is the one build you cannot debug.
+- `inspect()` renders through the host's `console.table` instead of drawing its own box. The
+  browser and Node both already have a table renderer, theirs folds objects open and ours would
+  not, and the bytes we do not spend on box drawing are most of why the cost is 0.32 kB.
+
+**`globalThis.__NAMESPACED_STORAGE__` is development-only**, for reasons that are about behaviour
+rather than bytes: it holds a reference to every store on the page, which keeps them alive, and it
+hands any script in the page a directory of everything the app persists. The check is the existing
+runtime `isProduction()` — no minifier needs to understand it, because nothing is being removed.
+
+`export()` returns what `get()` returns, key by key: expired and reserved keys are absent, and a
+value failing its schema follows `onInvalid` exactly as a read would. A snapshot that disagreed
+with the store it came from would be a worse debugging tool than no snapshot.
+
+## ADR-024 — The lint rules follow imports, not names
+
+**Status:** accepted · **Date:** 2026-09-22 · **Implements:** M9
+
+A lint rule that fires on the _name_ `createLocalStorage` is trivial to write and impossible to
+trust: every false positive teaches a team to disable the rule, and a disabled rule protects
+nothing.
+
+**Accepted:** `require-namespace-literal`, `no-reserved-key` and `storage-file-convention` only
+fire on a call whose callee resolves to an import from `namespaced-storage` — named,
+renamed (`createLocalStorage as make`), or reached through a namespace import. A factory
+re-exported through a project's own module is invisible to them, and that is the deliberate trade:
+the rules under-report rather than cry wolf, and the CLI's `nss scan` is the tool that sees the
+whole picture.
+
+`no-direct-storage` is the exception, because there is no import to follow: `localStorage` is a
+global. It resolves the identifier **through scope** instead of matching text, so
+`function read(localStorage)` and `const localStorage = new Map()` are untouched, and it covers
+`window.`, `globalThis.` and `self.` in both dot and bracket form. `document.cookie` is opt-in,
+because this package does not own cookies yet.
+
+Three smaller decisions the build forced:
+
+- **Flat configs under the plain names, eslintrc under `legacy-`.** Flat is what ESLint 9 runs, so
+  it gets the unqualified name; a project still on eslintrc is the one that knows it needs the
+  older shape and can say so.
+- **Zero runtime dependencies here too.** The rules are typed against ESLint's own `Rule.RuleModule`
+  — ESLint 9 ships its types — rather than `@typescript-eslint/utils`, and the small glob that
+  `allowInFiles` and the file convention need is thirty lines in the package. A lint plugin that
+  drags in a dependency tree is a lint plugin people skip.
+- **A real `Linter` run in the tests, not only `RuleTester`.** `RuleTester` exercises a rule in
+  isolation and would happily pass while the exported config that wires it up is malformed. The
+  config tests lint a snippet end to end and assert on `ruleId` and severity.
+
+## ADR-025 — A second entry point, `namespaced-storage/minimal`, for level 1
+
+**Status:** accepted · **Date:** 2026-09-22 · **Pays:** the modularity debt recorded in PLAN §11
+
+"Never make level 1 pay for level 2 or 3" had quietly stopped being true. Every feature is reached
+from the factory, so `createLocalStorage('basket')` and nothing else still carried the typing
+resolver, the migration engine and the devtools global.
+
+**Measured first, because the argument is worth nothing without the numbers.** Stubbing each module
+out of a real bundle, brotli, level-1 import:
+
+| build                          | size    | cost of the layer |
+| ------------------------------ | ------- | ----------------- |
+| everything, including `t.*`    | 6.95 kB |                   |
+| today's level 1 (no `t.*`)     | 6.39 kB | —                 |
+| − migrations                   | 5.68 kB | 0.71 kB           |
+| − typing (`defaults`/`schema`) | 5.20 kB | 0.48 kB           |
+| − `inspect()`                  | 4.86 kB | 0.34 kB           |
+
+So the debt is **1.19 kB, 19% of a level-1 bundle** — real, and smaller than the wording of the
+non-negotiable suggested. `t.*` was never part of it: it already tree-shakes, which is why the two
+existing budgets differ.
+
+**Accepted:** a second entry point, `namespaced-storage/minimal`, exporting the same three
+factories wired with nothing above level 1. The default entry does not change at all — same API,
+same types, same behaviour, and the existing suite passes untouched, which is what makes this
+additive rather than a fork of the package.
+
+- **Composition, not a second implementation.** `makeFactory` takes the features a build supports;
+  the two entries differ only in what they hand it. There is one store, one `sync.ts`, one set of
+  semantics. A feature that is absent is absent because nothing references it, which is the only
+  form of tree-shaking a bundler can be trusted to perform.
+- **The minimal build rejects the options it cannot honour.** `defaults`, `schema`, `version` and
+  `migrate` throw `InvalidOptionsError` naming the full entry, at construction. A silently ignored
+  `migrate` would be exactly the dead code ADR-022 refused to ship.
+- **`inspect()` stays.** ADR-023 argued it is the level-1 answer to "nobody can say what this app
+  persists", and dropping it here for 0.34 kB would have been that argument admitting it did not
+  mean it. The conflict guard stays for the same reason: namespacing as discipline (ADR-001) is
+  what level 1 _is_.
+
+**What this does not do.** The codecs (2.5 kB minified, the largest single module after the store
+itself) stay in both builds: `basket.set('at', new Date())` reading back a `Date` is a level-1
+promise, not an upgrade. A JSON-only build would be a third entry point for a fourth audience, and
+one seam is enough.
+
+**If `minimal` turns out to be unused by 1.0, delete it then** — removing an entry point is only
+breaking for the people who adopted it, and that is a decision better made with download numbers
+than with a principle.
+
+## ADR-026 — The inventory reads syntax, and only what it can prove
+
+**Status:** accepted · **Date:** 2026-09-22 · **Implements:** M10 · **Extends:** ADR-011, ADR-024
+
+`nss scan` exists because there is no registry file (ADR-011). It has to reconstruct one from the
+source, and the question that decides everything else is how much of the program it is willing to
+understand.
+
+**Accepted: one `ts.createSourceFile` per file, and nothing more.** No type checker, no `tsconfig`
+discovery, no module resolution, no evaluation.
+
+- It works on a repository that does not compile, which is exactly when someone is most likely to
+  ask what the app stores.
+- It is fast enough to be a CI step without anyone thinking about it: a pre-filter skips any file
+  whose text never mentions the package, so most of a repository is a string search.
+- `typescript` is a **peer** dependency. Every project this tool is for already has the compiler;
+  shipping a second copy to parse a handful of files would be the largest thing in the package.
+
+**It reports only what it can prove.** As in the lint rules (ADR-024), a call counts when its
+callee resolves to an import from `namespaced-storage` — named, renamed, or through a namespace
+import — and `namespaced-storage/minimal` counts as the same package. A namespace that is not a
+string literal is not skipped in silence: it is a **problem**, with a file and a line, because a
+namespace no tool can read is a namespace no tool can protect.
+
+**Duplicate identity is `backend::namespace`,** the same rule the runtime registry uses (ADR-020):
+`local` and `session` may each hold an `auth`. A duplicate exits `1`, which is the point — it
+catches the collision the runtime guard cannot see until both modules happen to load in the same
+page, and that a central registry file could never catch across packages of a monorepo.
+
+**Types are rendered in the words a reader would use.** `defaults` gives `number`, `string`,
+`Date`, `array`; an `as BasketItem[]` annotation wins over the `[]` it applies to, because the
+developer wrote it for exactly this audience. A `t.*` schema is read structurally —
+`t.array(t.string()).optional()` becomes `string[] | undefined`, `t.enum(['light','dark'])` becomes
+`'light' | 'dark'` — and a validator from another library falls back to its outermost builder name
+rather than guessing. Where a key is declared twice, the schema names it: it knows more.
+
+**The whole CLI is a function** — `run(argv, io)` returning an exit code — so the tests drive it
+without spawning a process, and `scanSource(file, source)` needs no filesystem at all.
+
+## ADR-027 — What shipping 1.0 actually meant
+
+**Status:** accepted · **Date:** 2026-09-22 · **Implements:** M11, M12
+
+Four decisions the last two milestones forced, none of them about the library's behaviour.
+
+**The examples are reference implementations, not runnable apps.** `examples/react` and
+`examples/next-ssr` would each drag a framework, a bundler and a lockfile's worth of transitive
+dependencies into a repository whose whole argument is that it has none. What a reader needs from
+them is the _pattern_ — the eight-line `useSyncExternalStore` hook, and the one rule about reading
+in an effect so hydration matches — and that is what they contain: source plus a README, linked to
+the library through the workspace. `examples/vanilla-ts` is the same, and none of them are built or
+typechecked by CI. The cost is that they can rot; the mitigation is that they are short enough to
+read in full during review.
+
+**There is no docs site yet.** Everything is plain markdown with no site-generator syntax, so
+pointing VitePress or Astro at `docs/` is configuration rather than a rewrite. Standing one up
+needs a hosting decision and a deploy pipeline that nobody has asked for, and a site that renders
+the same eight files is not what stands between this package and its first user.
+
+**The skill is one file, symlinked.** `packages/core/skill/SKILL.md` is the canonical copy and
+ships inside the package, so a consumer can copy it into their own `.claude/skills/`. This
+repository's `.claude/skills/namespaced-storage/SKILL.md` is a symlink to it rather than a second
+copy: two copies of a document whose entire job is to be accurate is the kind of duplication that
+is wrong within a week.
+
+**node10 module resolution is not supported, and `attw` is told so.** `namespaced-storage/minimal`
+cannot resolve under a resolver that predates the `exports` field, and the fixes — root-level stub
+files, or `typesVersions` — exist to serve Node versions this package already excludes in
+`engines`. The packaging gate runs `attw --profile node16`, which is honest: it states the
+resolvers we support rather than quietly passing on all of them.
+
+---
+
 ## Open questions
 
-- `get()` on a key absent from both `defaults` and `schema`: compile error with a `getUnsafe()`
-  escape hatch, or fall back to `unknown`? Leaning compile error. (A store with neither option is
-  "loose" and accepts any string key — that case is settled.)
-- Memory fallback shared across instances in a runtime, or per-instance? Leaning shared-per-adapter
-  so behaviour matches real storage.
-- `inspect()` in production builds — strip entirely via `NODE_ENV`, or keep behind a flag?
+- ~~`get()` on a key absent from both `defaults` and `schema`~~ — settled in M3: a compile error.
+  At runtime an undeclared key is simply untyped (no default, no validation) rather than throwing,
+  so `entries()` over stale storage keeps working.
+- ~~Memory fallback shared or per-instance?~~ — settled in M1: shared per adapter name.
+- Should a `t.date()` key coerce a stored ISO string into a `Date`? It would smooth migration off
+  raw storage, but silent coercion is hard to reason about. Currently it fails validation and
+  `onInvalid` applies.
+- ~~`inspect()` in production builds~~ — settled in M8: it ships everywhere, and only the global
+  hook is development-only. See ADR-023.
 - Should `nss scan` also detect _keys_ (not just namespaces) statically? Keys come from `defaults`
   and `schema` object literals, so it is feasible; the risk is false negatives with computed keys.

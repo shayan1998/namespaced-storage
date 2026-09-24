@@ -13,6 +13,7 @@ export type ErrorCode =
   | 'SERIALIZE'
   | 'DECODE'
   | 'VALIDATION'
+  | 'SUBSCRIBER'
   | 'MIGRATION';
 
 export interface ErrorContext {
@@ -51,6 +52,12 @@ export class StorageQuotaError extends NamespacedStorageError {
   }
 }
 
+export class NamespaceConflictError extends NamespacedStorageError {
+  constructor(message: string, context?: ErrorContext) {
+    super('NAMESPACE_CONFLICT', message, context);
+  }
+}
+
 export class InvalidNamespaceError extends NamespacedStorageError {
   constructor(message: string, context?: ErrorContext) {
     super('INVALID_NAMESPACE', message, context);
@@ -78,6 +85,48 @@ export class SerializationError extends NamespacedStorageError {
 export class DecodeError extends NamespacedStorageError {
   constructor(message: string, context?: ErrorContext) {
     super('DECODE', message, context);
+  }
+}
+
+export class ValidationError extends NamespacedStorageError {
+  /** Every way the value failed, with the path inside the value that failed. */
+  readonly issues: ReadonlyArray<{ path: (string | number)[]; message: string }>;
+
+  constructor(
+    message: string,
+    issues: ReadonlyArray<{ path: (string | number)[]; message: string }>,
+    context?: ErrorContext,
+  ) {
+    super('VALIDATION', message, context);
+    this.issues = issues;
+  }
+}
+
+/**
+ * A migration threw, returned a shape that is not a namespace snapshot, or could not be written.
+ * The version stamp is left where it was, so the next construction tries again (ADR-022).
+ */
+export class MigrationError extends NamespacedStorageError {
+  /** The version the data is stamped with, which the failed migration was reading from. */
+  readonly fromVersion: number | undefined;
+  /** The version the store declares, which the failed migration was moving towards. */
+  readonly toVersion: number;
+
+  constructor(
+    message: string,
+    versions: { from?: number | undefined; to: number },
+    context?: ErrorContext,
+  ) {
+    super('MIGRATION', message, context);
+    this.fromVersion = versions.from;
+    this.toVersion = versions.to;
+  }
+}
+
+/** A change-event subscriber threw. Reported, never rethrown into the event loop. */
+export class SubscriberError extends NamespacedStorageError {
+  constructor(message: string, context?: ErrorContext) {
+    super('SUBSCRIBER', message, context);
   }
 }
 

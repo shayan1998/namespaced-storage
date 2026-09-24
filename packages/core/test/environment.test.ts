@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLocalStorage } from '../src/store/create.js';
+import { createLocalStorage } from '../src/full.js';
 import { resetMemoryAdapters } from '../src/adapters/memory.js';
+import { resetNamespaceRegistry } from '../src/namespace/registry.js';
 import { StorageQuotaError, StorageUnavailableError } from '../src/errors.js';
 
 const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
@@ -28,7 +29,10 @@ function quotaException(): DOMException {
   return new DOMException('exceeded the quota', 'QuotaExceededError');
 }
 
-beforeEach(() => resetMemoryAdapters());
+beforeEach(() => {
+  resetMemoryAdapters();
+  resetNamespaceRegistry();
+});
 
 afterEach(() => {
   if (original) Object.defineProperty(globalThis, 'localStorage', original);
@@ -66,8 +70,9 @@ describe('no browser environment (SSR)', () => {
   });
 
   it('shares the memory fallback between stores in the same runtime', () => {
-    const a = createLocalStorage('basket');
-    const b = createLocalStorage('basket');
+    // Two instances of one namespace on purpose, which is exactly what strict:false is for.
+    const a = createLocalStorage('basket', { strict: false });
+    const b = createLocalStorage('basket', { strict: false });
     a.set('count', 7);
     expect(b.get('count')).toBe(7);
   });

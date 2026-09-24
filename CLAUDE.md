@@ -31,13 +31,34 @@ An npm package that puts a namespacing, typing and governance layer over key-val
 
 ## Status
 
-**M0 (scaffold) and M1 (namespacing core) are done** — `packages/core` at `0.1.0`, 64 tests,
-99.5% line coverage, 2.09 kB. **M2 (codecs / smart envelope) is next.**
+**Shipped: `1.0.0`, all twelve milestones.**
+
+| package                            | version | tests | notes                                            |
+| ---------------------------------- | ------- | ----- | ------------------------------------------------ |
+| `namespaced-storage`               | 1.0.0   | 307   | 6.41 kB · 5.17 kB from `/minimal` · 99.8% lines  |
+| `eslint-plugin-namespaced-storage` | 1.0.0   | 69    | four rules, flat + eslintrc, zero deps           |
+| `nss`                              | 1.0.0   | 41    | `scan` · `--json` · `docs`, `typescript` as peer |
+
+Docs in `docs/`, the AI skill in `packages/core/skill/SKILL.md` (symlinked into `.claude/skills/`),
+three examples in `examples/`. `.github/workflows/release.yml` publishes through changesets with
+npm provenance.
+
+**Not done, and waiting on a human:** the npm name `nss` is probably taken — check before the first
+publish; `NPM_TOKEN` must be in repository secrets; nothing has been published yet.
+
+Two entry points, one store: `src/full.ts` wires in every feature, `src/minimal.ts` wires in
+nothing above level 1, and both call `makeFactory` in `src/store/create.ts`. A feature added to the
+full build must be injected there, never imported by `create.ts` or `sync.ts` directly, or the
+minimal build silently starts paying for it again (ADR-025).
+
+Tests must call `resetNamespaceRegistry()` in `beforeEach`, or the conflict guard fires between cases.
 
 ```bash
 pnpm check   # typecheck + lint + test + build, everything CI runs
 ```
 
-Known gaps deliberately left for later milestones: no envelope yet (plain JSON only), so no
-`Date`/`Map`/`Set` round-trip, no TTL, no typing from `defaults`, no events, no namespace conflict
-guard, no ESLint plugin, no CLI.
+Keep this block current at the end of every milestone.
+
+Deliberately not built: a docs-site generator (the markdown is site-ready), and the async core —
+IndexedDB and Redis arrive in 2.0 on a separate async surface (ADR-006). `values()`, `touch()`,
+`import()` and a cookie adapter are the 1.1 list. See PLAN §10.

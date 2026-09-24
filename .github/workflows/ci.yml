@@ -23,4 +23,4 @@ jobs:
       - run: pnpm build
       - run: pnpm size
       - name: Verify packaging
-        run: pnpm --filter namespaced-storage exec publint
+        run: pnpm packaging

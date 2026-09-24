@@ -1,6 +1,6 @@
 {
   "name": "namespaced-storage",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Namespaced, type-safe, SSR-safe wrapper over localStorage and sessionStorage. Zero dependencies.",
   "keywords": [
     "localstorage",
@@ -16,6 +16,7 @@
   "sideEffects": false,
   "files": [
     "dist",
+    "skill",
     "README.md",
     "LICENSE"
   ],
@@ -33,6 +34,16 @@
         "default": "./dist/index.cjs"
       }
     },
+    "./minimal": {
+      "import": {
+        "types": "./dist/minimal.d.ts",
+        "default": "./dist/minimal.js"
+      },
+      "require": {
+        "types": "./dist/minimal.d.cts",
+        "default": "./dist/minimal.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -42,7 +53,7 @@
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "size": "size-limit",
-    "prepublishOnly": "pnpm build && publint && attw --pack ."
+    "prepublishOnly": "pnpm build && publint && attw --pack . --profile node16"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
@@ -57,10 +68,22 @@
   },
   "size-limit": [
     {
-      "name": "core (level 1, namespace only)",
+      "name": "namespacing + codecs (no schema)",
       "path": "dist/index.js",
       "import": "{ createLocalStorage }",
-      "limit": "3 kB"
+      "limit": "6.5 kB"
+    },
+    {
+      "name": "+ the built-in t.* schemas",
+      "path": "dist/index.js",
+      "import": "{ createLocalStorage, t }",
+      "limit": "7.1 kB"
+    },
+    {
+      "name": "level 1 only (/minimal)",
+      "path": "dist/minimal.js",
+      "import": "{ createLocalStorage }",
+      "limit": "5.2 kB"
     }
   ],
   "engines": {
